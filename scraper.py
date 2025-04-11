@@ -3,9 +3,10 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 import openai
-from pinecone import Pinecone
+import pinecone
 import re
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 
@@ -13,8 +14,12 @@ class TrendScraper:
     def __init__(self):
         self.base_url = "https://www.trendhunter.com"
         self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-        self.index = self.pc.Index(os.getenv("PINECONE_INDEX_NAME"))
+        
+        # Initialize Pinecone with all parameters
+        pinecone.init()
+        
+        # Connect directly to the index using the host
+        self.index = pinecone.Index(os.getenv("PINECONE_INDEX_NAME"))
 
     def get_article_links(self):
         response = requests.get(self.base_url)
@@ -31,7 +36,8 @@ class TrendScraper:
         date_div = soup.select_one("div.tha__references div")
         date_text = date_div.text if date_div else ""
         # Remove author name and clean date
-        date_text = re.sub(r'By.*?\|', '', date_text).strip()
+        date_text = re.sub(r'^[^—]*\s—\s', '', date_text).strip()
+        date_text = re.sub(r'\s—[^—]*$', '', date_text).strip()
         try:
             date = datetime.strptime(date_text, '%B %d, %Y')
         except ValueError:
@@ -42,7 +48,7 @@ class TrendScraper:
         content = content_div.text.strip() if content_div else ""
 
         # Extract themes
-        themes_div = soup.select(".tpt__aSecCont")
+        themes_div = soup.select(".tpt__aSecCont .tpt__aItemText")
         themes = [theme.text.strip() for theme in themes_div]
 
         return {
@@ -54,7 +60,7 @@ class TrendScraper:
 
     def generate_embedding(self, text):
         response = self.openai_client.embeddings.create(
-            model="text-embedding-ada-002",
+            model="text-embedding-3-large",
             input=text
         )
         return response.data[0].embedding

@@ -4,8 +4,9 @@ from datetime import datetime
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 import openai
-from pinecone import Pinecone
+import pinecone
 from dotenv import load_dotenv
+import time
 
 load_dotenv()
 
@@ -19,8 +20,18 @@ logger = logging.getLogger(__name__)
 class TrendBot:
     def __init__(self):
         self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        self.pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-        self.index = self.pc.Index(os.getenv("PINECONE_INDEX_NAME"))
+        
+        # Initialize Pinecone
+        api_key = os.getenv("PINECONE_API_KEY")
+        environment = os.getenv("PINECONE_ENVIRONMENT")
+        host = os.getenv("PINECONE_HOST")
+        index_name = os.getenv("PINECONE_INDEX_NAME")
+        
+        # Initialize Pinecone with all parameters
+        pinecone.init(api_key=api_key, environment=environment)
+        
+        # Connect directly to the index using the host
+        self.index = pinecone.Index(index_name, host=host)
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_message = (
@@ -53,7 +64,7 @@ class TrendBot:
 
     def generate_embedding(self, text):
         response = self.openai_client.embeddings.create(
-            model="text-embedding-ada-002",
+            model="text-embedding-3-large",
             input=text
         )
         return response.data[0].embedding
