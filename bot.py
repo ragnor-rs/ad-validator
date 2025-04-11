@@ -88,7 +88,7 @@ class TrendBot:
 
         return filtered_results
 
-    def generate_response(self, query, results, month, year):
+    def generate_response(self, query, results, month_str, year_str):
         if not results:
             return "I couldn't find any relevant trends for your query. Try a different topic or time period."
 
@@ -180,7 +180,7 @@ class TrendBot:
             results = self.search_trends(topic, month, year)
             
             # Generate response
-            response = self.generate_response(topic, results, month, year)
+            response = self.generate_response(topic, results, month_str, year_str)
             
             # Convert response to Telegram MarkdownV2 format
             telegram_markdown = telegramify_markdown.markdownify(
