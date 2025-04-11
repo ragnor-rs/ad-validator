@@ -15,7 +15,7 @@ class TrendScraper:
         self.base_url = "https://www.trendhunter.com"
         self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        # Initialize Pinecone with all parameters
+        # Initialize Pinecones
         pinecone.init()
         
         # Connect directly to the index using the host

@@ -21,17 +21,11 @@ class TrendBot:
     def __init__(self):
         self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        # Initialize Pinecone
-        api_key = os.getenv("PINECONE_API_KEY")
-        environment = os.getenv("PINECONE_ENVIRONMENT")
-        host = os.getenv("PINECONE_HOST")
-        index_name = os.getenv("PINECONE_INDEX_NAME")
-        
-        # Initialize Pinecone with all parameters
-        pinecone.init(api_key=api_key, environment=environment)
+        # Initialize Pinecones
+        pinecone.init()
         
         # Connect directly to the index using the host
-        self.index = pinecone.Index(index_name, host=host)
+        self.index = pinecone.Index(os.getenv("PINECONE_INDEX_NAME"))
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_message = (
@@ -82,7 +76,7 @@ class TrendBot:
         # Filter results by month and year if specified
         filtered_results = []
         for match in results.matches:
-            result_date = datetime.fromisoformat(match.metadata['date'])
+            result_date = match.metadata['date']
             if month and year:
                 if result_date.month == month and result_date.year == year:
                     filtered_results.append(match)
@@ -100,7 +94,7 @@ class TrendBot:
 
         # Prepare context from search results
         context = "\n\n".join([
-            f"Date: {datetime.fromisoformat(r.metadata['date']).strftime('%B %d, %Y')}\n"
+            f"Date: {r.metadata['date'].strftime('%B %d, %Y')}\n"
             f"Content: {r.metadata['content']}\n"
             f"Themes: {', '.join(r.metadata['themes'])}"
             for r in results
@@ -162,8 +156,8 @@ class TrendBot:
             
             # Generate response
             response = self.generate_response(topic, results)
-
-            # Send response
+            
+            # Send response with markdown formatting
             await update.message.reply_text(response)
 
         except Exception as e:
