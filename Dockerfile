@@ -9,9 +9,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application
 COPY . .
 
-# Create a non-root user
-RUN useradd -m appuser && chown -R appuser:appuser /app
-USER appuser
+# Expose the port the app runs on
+EXPOSE 8080
 
-# Command to run the bot
-CMD ["python", "bot.py"] 
+CMD ["python", "bot-server.py"] 

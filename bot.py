@@ -198,7 +198,7 @@ class TrendBot:
                 "Sorry, I encountered an error while processing your request. Please try again later."
             )
 
-def main():
+def runBot():
     # Initialize bot
     application = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
     trend_bot = TrendBot()
@@ -212,4 +212,4 @@ def main():
     application.run_polling()
 
 if __name__ == "__main__":
-    main() 
+    runBot() 
