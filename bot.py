@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 import openai
 import pinecone
 from dotenv import load_dotenv
-import time
+import telegramify_markdown
 
 load_dotenv()
 
@@ -21,7 +21,7 @@ class TrendBot:
     def __init__(self):
         self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        # Initialize Pinecones
+        # Initialize Pinecone
         pinecone.init()
         
         # Connect directly to the index using the host
@@ -96,7 +96,8 @@ class TrendBot:
         context = "\n\n".join([
             f"Date: {r.metadata['date'].strftime('%B %d, %Y')}\n"
             f"Content: {r.metadata['content']}\n"
-            f"Themes: {', '.join(r.metadata['themes'])}"
+            f"Themes: {', '.join(r.metadata['themes'])}\n"
+            f"Source: {r.metadata['url']}"
             for r in results
         ])
 
@@ -104,10 +105,10 @@ class TrendBot:
         response = self.openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=[
-                {"role": "system", "content": "You are a design trends analyst. Provide insightful analysis of design trends based on the given context. Focus on key insights and patterns."},
-                {"role": "user", "content": f"Query: {query}\n\nContext:\n{context}\n\nPlease provide a comprehensive analysis of the design trends based on this information."}
+                {"role": "system", "content": "You are a design trends analyst. Provide insightful analysis of design trends based on the given context. Focus on key insights and patterns. Please use the language of user prompt or query language. When in doubt, English is the least priority. Stick to the topic of the query. Do not focus on irrelevant information just for sake of reply length and details."},
+                {"role": "user", "content": f"Query: {query}\n\nContext:\n{context}\n\nPlease provide a key points of the design trends based on this information. Please use the language of user prompt or query language. When in doubt, English is the least priority. Stick to the topic of the query. Do not focus on irrelevant information just for sake of reply length and details. Please mention the sources of the information in the separate paragraph as a list."}
             ],
-            temperature=0.7,
+            temperature=0.5,
             max_tokens=1000
         )
 
@@ -130,14 +131,37 @@ class TrendBot:
             month_str = message_parts[-2]
             year_str = message_parts[-1]
 
-            # Convert month name to number
+            # Convert month name to English using OpenAI if needed
             try:
+                # First try direct conversion
                 month = datetime.strptime(month_str, "%B").month
             except ValueError:
-                await update.message.reply_text(
-                    "Invalid month format. Please use the full month name (e.g., March, April)."
+                await update.message.chat.send_action(action="typing")
+
+                # If direct conversion fails, use OpenAI to translate the month name
+                logger.info(f"Attempting to translate month name: {month_str}")
+                translation_prompt = f"Translate the following month name to English. Return ONLY the English month name, nothing else: {month_str}"
+                
+                translation_response = self.openai_client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[
+                        {"role": "system", "content": "You are a helpful translator. Translate month names to English."},
+                        {"role": "user", "content": translation_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=20
                 )
-                return
+                
+                english_month = translation_response.choices[0].message.content.strip()
+                logger.info(f"Translated month name: {english_month}")
+                
+                try:
+                    month = datetime.strptime(english_month, "%B").month
+                except ValueError:
+                    await update.message.reply_text(
+                        "Invalid month format. Please use a valid month name in any language."
+                    )
+                    return
 
             # Convert year to integer
             try:
@@ -148,17 +172,23 @@ class TrendBot:
                 )
                 return
 
-            # Send typing action
             await update.message.chat.send_action(action="typing")
-
+            
             # Search for trends
             results = self.search_trends(topic, month, year)
             
             # Generate response
             response = self.generate_response(topic, results)
             
+            # Convert response to Telegram MarkdownV2 format
+            telegram_markdown = telegramify_markdown.markdownify(
+                response,
+                max_line_length=None,  # If you want to change the max line length for links, images, set it to the desired value.
+                normalize_whitespace=False
+            )
+            
             # Send response with markdown formatting
-            await update.message.reply_text(response)
+            await update.message.reply_text(telegram_markdown, parse_mode='MarkdownV2')
 
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
