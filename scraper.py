@@ -15,11 +15,9 @@ class TrendScraper:
         self.base_url = "https://www.trendhunter.com"
         self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        # Initialize Pinecones
-        pinecone.init()
-        
-        # Connect directly to the index using the host
-        self.index = pinecone.Index(os.getenv("PINECONE_INDEX_NAME"))
+        # Initialize Pinecone with the new syntax
+        pc = pinecone.Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+        self.index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
 
     def get_article_links(self):
         response = requests.get(self.base_url)
@@ -70,16 +68,15 @@ class TrendScraper:
         content = article_data['content']
         
         # Remove the last line if it starts with "Image Credit: "
-        cleaned_content = content
-        content_lines = cleaned_content.split('\n\n')
+        content_lines = content.split('\n')
         if content_lines and content_lines[-1].strip().startswith("Image Credit: "):
-            cleaned_content = '\n'.join(content_lines[:-1])
+            content = '\n'.join(content_lines[:-1])
         
         # Clean themes by removing numbering using regex
         cleaned_themes = []
         for theme in article_data['themes']:
             # Remove numbering like "1.", "1a.", "2b.", etc.
-            cleaned_theme = re.sub(r'^\d*\.\s', '', theme.strip())
+            cleaned_theme = re.sub(r'^[0-9a-zA-Z]+\.\s*', '', theme.strip())
             cleaned_themes.append(cleaned_theme)
         
         combined_text = f"{content} {' '.join(cleaned_themes)}"
@@ -88,7 +85,7 @@ class TrendScraper:
         # Prepare metadata
         metadata = {
             'date': article_data['date'].isoformat(),
-            'content': cleaned_content,
+            'content': content,
             'themes': cleaned_themes,
             'url': article_data['url']
         }

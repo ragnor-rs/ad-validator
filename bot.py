@@ -21,11 +21,9 @@ class TrendBot:
     def __init__(self):
         self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
-        # Initialize Pinecone
-        pinecone.init()
-        
-        # Connect directly to the index using the host
-        self.index = pinecone.Index(os.getenv("PINECONE_INDEX_NAME"))
+        # Initialize Pinecone with the new syntax
+        pc = pinecone.Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
+        self.index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_message = (
@@ -76,7 +74,9 @@ class TrendBot:
         # Filter results by month and year if specified
         filtered_results = []
         for match in results.matches:
-            result_date = match.metadata['date']
+            # Convert ISO date string to datetime object
+            result_date = datetime.fromisoformat(match.metadata['date'])
+            
             if month and year:
                 if result_date.month == month and result_date.year == year:
                     filtered_results.append(match)
@@ -108,7 +108,7 @@ class TrendBot:
                 {"role": "developer", "content": f"Date:\n{month} {year}"},
                 {"role": "developer", "content": f"Query:\n{query}"},
                 {"role": "developer", "content": f"Context:\n\n{context}"},
-                {"role": "user", "content": "Please provide a summary of the design trends. Mention the month and the year. Use the language of the query. When in doubt, don't use English. Add the sources of the information in the separate paragraph as a list."}
+                {"role": "user", "content": "Please provide a summary of the design trends. Mention the month and the year. Use the language of the query. Add the sources of the information in the separate paragraph as a list."}
             ],
             temperature=0.5,
             max_tokens=1000
