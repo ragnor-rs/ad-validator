@@ -88,13 +88,12 @@ class TrendBot:
 
         return filtered_results
 
-    def generate_response(self, query, results):
+    def generate_response(self, query, results, month, year):
         if not results:
             return "I couldn't find any relevant trends for your query. Try a different topic or time period."
 
         # Prepare context from search results
         context = "\n\n".join([
-            f"Date: {r.metadata['date'].strftime('%B %d, %Y')}\n"
             f"Content: {r.metadata['content']}\n"
             f"Themes: {', '.join(r.metadata['themes'])}\n"
             f"Source: {r.metadata['url']}"
@@ -105,8 +104,11 @@ class TrendBot:
         response = self.openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=[
-                {"role": "system", "content": "You are a design trends analyst. Provide insightful analysis of design trends based on the given context. Focus on key insights and patterns. Please use the language of user prompt or query language. When in doubt, English is the least priority. Stick to the topic of the query. Do not focus on irrelevant information just for sake of reply length and details."},
-                {"role": "user", "content": f"Query: {query}\n\nContext:\n{context}\n\nPlease provide a key points of the design trends based on this information. Please use the language of user prompt or query language. When in doubt, English is the least priority. Stick to the topic of the query. Do not focus on irrelevant information just for sake of reply length and details. Please mention the sources of the information in the separate paragraph as a list."}
+                {"role": "system", "content": "You are a design trends analyst. You provide insightful analysis of design trends based on the given date, query and context."},
+                {"role": "developer", "content": f"Date:\n{month} {year}"},
+                {"role": "developer", "content": f"Query:\n{query}"},
+                {"role": "developer", "content": f"Context:\n\n{context}"},
+                {"role": "user", "content": "Please provide a summary of the design trends. Mention the month and the year. Use the language of the query. When in doubt, don't use English. Add the sources of the information in the separate paragraph as a list."}
             ],
             temperature=0.5,
             max_tokens=1000
@@ -178,7 +180,7 @@ class TrendBot:
             results = self.search_trends(topic, month, year)
             
             # Generate response
-            response = self.generate_response(topic, results)
+            response = self.generate_response(topic, results, month, year)
             
             # Convert response to Telegram MarkdownV2 format
             telegram_markdown = telegramify_markdown.markdownify(

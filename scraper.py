@@ -67,14 +67,29 @@ class TrendScraper:
 
     def process_article(self, article_data):
         # Combine content and themes for embedding
-        combined_text = f"{article_data['content']} {' '.join(article_data['themes'])}"
+        content = article_data['content']
+        
+        # Remove the last line if it starts with "Image Credit: "
+        cleaned_content = content
+        content_lines = cleaned_content.split('\n\n')
+        if content_lines and content_lines[-1].strip().startswith("Image Credit: "):
+            cleaned_content = '\n'.join(content_lines[:-1])
+        
+        # Clean themes by removing numbering using regex
+        cleaned_themes = []
+        for theme in article_data['themes']:
+            # Remove numbering like "1.", "1a.", "2b.", etc.
+            cleaned_theme = re.sub(r'^\d*\.\s', '', theme.strip())
+            cleaned_themes.append(cleaned_theme)
+        
+        combined_text = f"{content} {' '.join(cleaned_themes)}"
         embedding = self.generate_embedding(combined_text)
 
         # Prepare metadata
         metadata = {
             'date': article_data['date'].isoformat(),
-            'content': article_data['content'],
-            'themes': article_data['themes'],
+            'content': cleaned_content,
+            'themes': cleaned_themes,
             'url': article_data['url']
         }
 
