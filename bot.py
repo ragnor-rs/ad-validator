@@ -105,7 +105,7 @@ class TrendBot:
             model="gpt-4-turbo-preview",
             messages=[
                 {"role": "system", "content": "You are a design trends analyst. You provide insightful analysis of design trends based on the given date, query and context."},
-                {"role": "developer", "content": f"Date:\n{month} {year}"},
+                {"role": "developer", "content": f"Date:\n{month_str} {year_str}"},
                 {"role": "developer", "content": f"Query:\n{query}"},
                 {"role": "developer", "content": f"Context:\n\n{context}"},
                 {"role": "user", "content": "Please provide a summary of the design trends. Mention the month and the year. Use the language of the query. Add the sources of the information in the separate paragraph as a list."}
@@ -159,6 +159,7 @@ class TrendBot:
                 
                 try:
                     month = datetime.strptime(english_month, "%B").month
+                    month_str = english_month
                 except ValueError:
                     await update.message.reply_text(
                         "Invalid month format. Please use a valid month name in any language."
