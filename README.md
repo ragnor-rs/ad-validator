@@ -1,12 +1,11 @@
-# Design Trends Telegram Bot
+# Ad Validator Telegram Bot
 
-A Telegram bot that provides insights about design trends by analyzing data from TrendHunter.com. The bot uses OpenAI's GPT-4 for generating responses and Pinecone for vector storage.
+A Telegram bot that evaluates advertisements if the comply with the law. The bot uses OpenAI's GPT-4 for generating responses and Pinecone for vector storage.
 
 ## Features
 
-- Daily scraping of design trends from TrendHunter.com
-- Vector storage of trend data using Pinecone
-- Natural language querying of trends by topic, month, and year
+- Vector storage of laws concerning advertising using Pinecone
+- Natural language queries
 - Retrieval Augmented Generation (RAG) for accurate responses
 - Deployed on Google Cloud Run
 
@@ -72,16 +71,8 @@ gcloud builds submit --config cloudbuild.yaml
 ## Usage
 
 1. Start a chat with your bot on Telegram
-2. Send a message in the format: `topic month year`
-   Example: `sustainable design March 2024`
-3. The bot will respond with insights about design trends for your query
-
-## Architecture
-
-- **Bot Service**: Handles Telegram interactions and generates responses using RAG
-- **Scraper Service**: Collects and processes trend data daily
-- **Vector Database**: Stores trend embeddings and metadata
-- **OpenAI Integration**: Generates embeddings and responses
+2. Send a message with ad text
+3. The bot will respond with evaluation on the given ad text
 
 ## Contributing
 

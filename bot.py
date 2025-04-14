@@ -17,7 +17,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-class TrendBot:
+class AdValidatorBot:
     def __init__(self):
         self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         
@@ -27,32 +27,9 @@ class TrendBot:
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_message = (
-            "👋 Welcome to the Design Trends Bot! 🎨\n\n"
-            "I can help you discover design trends for specific topics, months, and years.\n\n"
-            "To get started, just send me a message in this format:\n"
-            "`topic month year`\n\n"
-            "For example:\n"
-            "`sustainable design March 2024`\n"
-            "`minimalist furniture January 2024`\n\n"
-            "I'll analyze the trends and provide you with insights! 🚀"
+            "👋 Welcome to the Ad Validator! 🎨"
         )
         await update.message.reply_text(welcome_message, parse_mode='Markdown')
-
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        help_text = (
-            "📚 How to use the Design Trends Bot:\n\n"
-            "1. Send a message with your query in this format:\n"
-            "`topic month year`\n\n"
-            "2. I'll search through our database of design trends and provide you with relevant insights.\n\n"
-            "Examples:\n"
-            "- `sustainable design March 2024`\n"
-            "- `minimalist furniture January 2024`\n"
-            "- `color trends February 2024`\n\n"
-            "Commands:\n"
-            "/start - Start the bot\n"
-            "/help - Show this help message"
-        )
-        await update.message.reply_text(help_text, parse_mode='Markdown')
 
     def generate_embedding(self, text):
         response = self.openai_client.embeddings.create(
@@ -61,7 +38,7 @@ class TrendBot:
         )
         return response.data[0].embedding
 
-    def search_trends(self, query, month=None, year=None):
+    def search_law(self, query):
         query_embedding = self.generate_embedding(query)
         
         # Search in Pinecone
@@ -71,32 +48,15 @@ class TrendBot:
             include_metadata=True
         )
 
-        # Filter results by month and year if specified
-        filtered_results = []
-        for match in results.matches:
-            # Convert ISO date string to datetime object
-            result_date = datetime.fromisoformat(match.metadata['date'])
-            
-            if month and year:
-                if result_date.month == month and result_date.year == year:
-                    filtered_results.append(match)
-            elif year:
-                if result_date.year == year:
-                    filtered_results.append(match)
-            else:
-                filtered_results.append(match)
+        return results.matches  # Return the matches directly
 
-        return filtered_results
-
-    def generate_response(self, query, results, month_str, year_str):
+    def generate_response(self, query, results):
         if not results:
-            return "I couldn't find any relevant trends for your query. Try a different topic or time period."
+            return "I couldn't find any relevant law for your query"
 
         # Prepare context from search results
         context = "\n\n".join([
             f"Content: {r.metadata['content']}\n"
-            f"Themes: {', '.join(r.metadata['themes'])}\n"
-            f"Source: {r.metadata['url']}"
             for r in results
         ])
 
@@ -104,11 +64,10 @@ class TrendBot:
         response = self.openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=[
-                {"role": "system", "content": "You are a design trends analyst. You provide insightful analysis of design trends based on the given date, query and context. You are a helpful assistant. You are straight to the point and concise."},
-                {"role": "developer", "content": f"Date:\n{month_str} {year_str}"},
+                {"role": "system", "content": "You are a ad analyst and a lawyer. You provide insightful analysis of ad based on the given query and context. You are a helpful assistant. You are straight to the point and concise."},
                 {"role": "developer", "content": f"Query:\n{query}"},
-                {"role": "developer", "content": f"Context:\n\n{context}"},
-                {"role": "user", "content": "Please provide a summary of the design trends. Strictly adhere to the query. Do not invent anything. If there's no topic of the query then admit there's no relevant knowledge in the context. Say you don't know if there's no information in the context. Do not explain nor summarize the context if there's no relevant information in it. Mention the month and the year. Use the language of the query. Add the sources of the information in the separate paragraph as a list if and only if there's relevant information in the context."}
+                {"role": "developer", "content": f"Law context:\n\n{context}"},
+                {"role": "user", "content": "Please evaluate if the ad is compliant with the law. Strictly adhere to the query. Do not invent anything. If there's no topic of the query then admit there's no relevant knowledge in the context. Say you don't know if there's no information in the context. Do not explain nor summarize the context if there's no relevant information in it. Mention the month and the year. Use the language of the query. Add the sources of the information in the separate paragraph as a list if and only if there's relevant information in the context."}
             ],
             temperature=0.3,
             max_tokens=1000
@@ -118,70 +77,14 @@ class TrendBot:
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
-            # Parse the message
-            message_parts = update.message.text.strip().split()
-            if len(message_parts) < 2:
-                await update.message.reply_text(
-                    "Please provide a topic, month, and year in the format: `topic month year`\n"
-                    "Example: `sustainable design March 2024`",
-                    parse_mode='Markdown'
-                )
-                return
-
-            # Extract query components
-            topic = " ".join(message_parts[:-2])
-            month_str = message_parts[-2]
-            year_str = message_parts[-1]
-
-            # Convert month name to English using OpenAI if needed
-            try:
-                # First try direct conversion
-                month = datetime.strptime(month_str, "%B").month
-            except ValueError:
-                await update.message.chat.send_action(action="typing")
-
-                # If direct conversion fails, use OpenAI to translate the month name
-                logger.info(f"Attempting to translate month name: {month_str}")
-                translation_prompt = f"Translate the following month name to English. Return ONLY the English month name, nothing else: {month_str}"
-                
-                translation_response = self.openai_client.chat.completions.create(
-                    model="gpt-3.5-turbo",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful translator. Translate month names to English."},
-                        {"role": "user", "content": translation_prompt}
-                    ],
-                    temperature=0.1,
-                    max_tokens=20
-                )
-                
-                english_month = translation_response.choices[0].message.content.strip()
-                logger.info(f"Translated month name: {english_month}")
-                
-                try:
-                    month = datetime.strptime(english_month, "%B").month
-                    month_str = english_month
-                except ValueError:
-                    await update.message.reply_text(
-                        "Invalid month format. Please use a valid month name in any language."
-                    )
-                    return
-
-            # Convert year to integer
-            try:
-                year = int(year_str)
-            except ValueError:
-                await update.message.reply_text(
-                    "Invalid year format. Please use a valid year (e.g., 2024)."
-                )
-                return
-
+            query = update.message.text
+        
             await update.message.chat.send_action(action="typing")
             
-            # Search for trends
-            results = self.search_trends(topic, month, year)
+            results = self.search_law(query)
             
             # Generate response
-            response = self.generate_response(topic, results, month_str, year_str)
+            response = self.generate_response(query, results)
             
             # Convert response to Telegram MarkdownV2 format
             telegram_markdown = telegramify_markdown.markdownify(
@@ -202,12 +105,11 @@ class TrendBot:
 def runBot():
     # Initialize bot
     application = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
-    trend_bot = TrendBot()
+    ad_validator_bot = AdValidatorBot()
 
     # Add handlers
-    application.add_handler(CommandHandler("start", trend_bot.start))
-    application.add_handler(CommandHandler("help", trend_bot.help_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, trend_bot.handle_message))
+    application.add_handler(CommandHandler("start", ad_validator_bot.start))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ad_validator_bot.handle_message))
 
     # Start the bot
     application.run_polling()

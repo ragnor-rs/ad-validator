@@ -1,19 +1,11 @@
 steps:
   # Build the bot image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/trend-bot', '.']
-
-  # Build the scraper image
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/trend-scraper', '-f', 'Dockerfile.scraper', '.']
+    args: ['build', '-t', 'gcr.io/$PROJECT_ID/ad-validator-bot', '.']
 
   # Push the bot image to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/trend-bot']
-
-  # Push the scraper image to Container Registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/trend-scraper']
+    args: ['push', 'gcr.io/$PROJECT_ID/ad-validator-bot']
 
   # Deploy the bot to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
@@ -21,24 +13,9 @@ steps:
     args:
       - 'run'
       - 'deploy'
-      - 'trend-bot'
+      - 'ad-validator-bot'
       - '--image'
-      - 'gcr.io/$PROJECT_ID/trend-bot'
-      - '--region'
-      - 'us-central1'
-      - '--platform'
-      - 'managed'
-      - '--allow-unauthenticated'
-
-  # Deploy the scraper to Cloud Run
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
-    args:
-      - 'run'
-      - 'deploy'
-      - 'trend-scraper'
-      - '--image'
-      - 'gcr.io/$PROJECT_ID/trend-scraper'
+      - 'gcr.io/$PROJECT_ID/ad-validator-bot'
       - '--region'
       - 'us-central1'
       - '--platform'
@@ -46,5 +23,5 @@ steps:
       - '--allow-unauthenticated'
 
 images:
-  - 'gcr.io/$PROJECT_ID/trend-bot'
-  - 'gcr.io/$PROJECT_ID/trend-scraper' 
+  - 'gcr.io/$PROJECT_ID/ad-validator-bot'
+  - 'gcr.io/$PROJECT_ID/ad-validator-scraper' 
