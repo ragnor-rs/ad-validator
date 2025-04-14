@@ -104,13 +104,13 @@ class TrendBot:
         response = self.openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=[
-                {"role": "system", "content": "You are a design trends analyst. You provide insightful analysis of design trends based on the given date, query and context."},
+                {"role": "system", "content": "You are a design trends analyst. You provide insightful analysis of design trends based on the given date, query and context. You are a helpful assistant. You are straight to the point and concise."},
                 {"role": "developer", "content": f"Date:\n{month_str} {year_str}"},
                 {"role": "developer", "content": f"Query:\n{query}"},
                 {"role": "developer", "content": f"Context:\n\n{context}"},
-                {"role": "user", "content": "Please provide a summary of the design trends. Mention the month and the year. Use the language of the query. Add the sources of the information in the separate paragraph as a list."}
+                {"role": "user", "content": "Please provide a summary of the design trends. Strictly adhere to the query. Do not invent anything. If there's no topic of the query then admit there's no relevant knowledge in the context. Say you don't know if there's no information in the context. Do not explain nor summarize the context if there's no relevant information in it. Mention the month and the year. Use the language of the query. Add the sources of the information in the separate paragraph as a list if and only if there's relevant information in the context."}
             ],
-            temperature=0.5,
+            temperature=0.3,
             max_tokens=1000
         )
 
