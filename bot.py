@@ -38,8 +38,33 @@ class AdValidatorBot:
         )
         return response.data[0].embedding
 
-    def search_law(self, query):
-        query_embedding = self.generate_embedding(query)
+    def extract_law_context(self, ad_text):
+        # return ad_text
+        response = self.openai_client.chat.completions.create(
+            model="gpt-4-turbo-preview",
+            messages=[
+                {"role": "system", "content": """You are an expert in law and advertising. 
+                Analyze the ad text and return a plain text analysis with the following sections:
+                1. Type: Whether this is an ad for goods or services
+                2. Topics: List the main topics and categories that might be affected by advertising laws of different countries
+                3. Legal Analysis: Describe the possible legal concerns
+                Return only the analysis text, no additional formatting."""},
+                {"role": "user", "content": f"Analyze this ad text:\n\n{ad_text}"}
+            ],
+            temperature=0.3,
+            max_tokens=500
+        )
+        
+        analysis = response.choices[0].message.content.strip()
+        print(f"Ad analysis:\n{analysis}")
+        return analysis
+
+    def search_law(self, ad_text):
+        # Get analysis and extract topics for search
+        law_context = self.extract_law_context(ad_text)
+        
+        # Generate embedding for topics
+        query_embedding = self.generate_embedding(law_context)
         
         # Search in Pinecone
         results = self.index.query(
@@ -50,26 +75,28 @@ class AdValidatorBot:
 
         return results.matches  # Return the matches directly
 
-    def generate_response(self, query, results):
-        if not results:
-            return "I couldn't find any relevant law for your query"
+    def generate_response(self, ad_text, law_context):
+        if not law_context:
+            return "I couldn't find any relevant law for your ad"
 
-        # Prepare context from search results
+        # Join content fields from law_context matches
         context = "\n\n".join([
-            f"Content: {r.metadata['content']}\n"
-            for r in results
+            f"{r.metadata['content']}\n\n"
+            for r in law_context
         ])
+
+        print(f"Law context:\n{context}")
 
         # Generate response using OpenAI
         response = self.openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=[
                 {"role": "system", "content": "You are a ad analyst and a lawyer. You provide insightful analysis of ad based on the given query and context. You are a helpful assistant. You are straight to the point and concise."},
-                {"role": "developer", "content": f"Query:\n{query}"},
+                {"role": "developer", "content": f"Ad text:\n{ad_text}"},
                 {"role": "developer", "content": f"Law context:\n\n{context}"},
-                {"role": "user", "content": "Please evaluate if the ad is compliant with the law. Strictly adhere to the query. Do not invent anything. If there's no topic of the query then admit there's no relevant knowledge in the context. Say you don't know if there's no information in the context. Do not explain nor summarize the context if there's no relevant information in it. Mention the month and the year. Use the language of the query. Add the sources of the information in the separate paragraph as a list if and only if there's relevant information in the context."}
+                {"role": "user", "content": "Please evaluate if the ad text is compliant with the law. Strictly adhere to the ad text and the context. Do not invent anything. If there's no law context then admit you don't know relevant law. Mention related articles and sections of the law. Use the language of the ad text."}
             ],
-            temperature=0.3,
+            temperature=0.2,
             max_tokens=1000
         )
 
@@ -77,14 +104,14 @@ class AdValidatorBot:
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
-            query = update.message.text
+            ad_text = update.message.text
         
             await update.message.chat.send_action(action="typing")
             
-            results = self.search_law(query)
+            results = self.search_law(ad_text)
             
             # Generate response
-            response = self.generate_response(query, results)
+            response = self.generate_response(ad_text, results)
             
             # Convert response to Telegram MarkdownV2 format
             telegram_markdown = telegramify_markdown.markdownify(
