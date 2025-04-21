@@ -1,0 +1,220 @@
+{
+  "criteria": [
+    {
+      "category": "Content",
+      "description": "Advertisement recognized as an offer must specify its validity period if different from two months",
+      "type": "requirement",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Срок действия рекламы, признаваемой офертой",
+        "chapter_number": "1",
+        "article_number": "11",
+        "entry_id": "law_5422da17c06a"
+      }
+    },
+    {
+      "category": "Content",
+      "description": "Ad must not use hidden advertising techniques, including special video inserts or double sound recordings",
+      "type": "restriction",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Общие требования к рекламе",
+        "chapter_number": "1",
+        "article_number": "5",
+        "entry_id": "law_99b2c27971a4"
+      }
+    },
+    {
+      "category": "Content",
+      "description": "Ad must not be placed in educational materials for children, including textbooks, teaching aids, and other educational literature for primary, basic, and secondary education, as well as school diaries and notebooks",
+      "type": "restriction",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Общие требования к рекламе",
+        "chapter_number": "1",
+        "article_number": "5",
+        "entry_id": "law_99b2c27971a4"
+      }
+    },
+    {
+      "category": "Content",
+      "description": "Ad must promote fair competition",
+      "type": "requirement",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Цели настоящего Федерального закона",
+        "chapter_number": "1",
+        "article_number": "1",
+        "entry_id": "law_9f1e67653af4"
+      }
+    },
+    {
+      "category": "Content",
+      "description": "Ad must be honest and truthful",
+      "type": "requirement",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Цели настоящего Федерального закона",
+        "chapter_number": "1",
+        "article_number": "1",
+        "entry_id": "law_9f1e67653af4"
+      }
+    },
+    {
+      "category": "Content",
+      "description": "Ad must not be improper advertising",
+      "type": "restriction",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Цели настоящего Федерального закона",
+        "chapter_number": "1",
+        "article_number": "1",
+        "entry_id": "law_9f1e67653af4"
+      }
+    },
+    {
+      "category": "Timing",
+      "description": "Offer in the advertisement is valid for two months from the day of advertisement distribution unless otherwise specified",
+      "type": "requirement",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Срок действия рекламы, признаваемой офертой",
+        "chapter_number": "1",
+        "article_number": "11",
+        "entry_id": "law_5422da17c06a"
+      }
+    },
+    {
+      "category": "Disclosure",
+      "description": "Ad for information products must indicate the category of the product if it is subject to classification under the Federal Law protecting children from harmful information",
+      "type": "restriction",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Общие требования к рекламе",
+        "chapter_number": "1",
+        "article_number": "5",
+        "entry_id": "law_99b2c27971a4"
+      }
+    },
+    {
+      "category": "Targeting",
+      "description": "Ad must not contain information prohibited for distribution among children according to the Federal Law protecting children from harmful information, in educational organizations for children, children's medical, sanatorium-resort, physical culture and sports organizations, cultural organizations, organizations for rest and recuperation of children, or within less than 100 meters from these organizations",
+      "type": "restriction",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Общие требования к рекламе",
+        "chapter_number": "1",
+        "article_number": "5",
+        "entry_id": "law_99b2c27971a4"
+      }
+    },
+    {
+      "category": "Targeting",
+      "description": "Ad must not be distributed on the information resource of a foreign entity if a federal executive body has decided to prohibit advertising on such an information resource and included this decision in the list of foreign entities operating on the Internet in the Russian Federation",
+      "type": "restriction",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Общие требования к рекламе",
+        "chapter_number": "1",
+        "article_number": "5",
+        "entry_id": "law_99b2c27971a4"
+      }
+    },
+    {
+      "category": "Placement",
+      "description": "Ad must not be placed on payment documents for housing and communal services, including the reverse side of such documents, except for social advertising and reference information",
+      "type": "restriction",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Общие требования к рекламе",
+        "chapter_number": "1",
+        "article_number": "5",
+        "entry_id": "law_99b2c27971a4"
+      }
+    },
+    {
+      "category": "Placement",
+      "description": "Ad must not be distributed on the information resource of a foreign agent",
+      "type": "restriction",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Общие требования к рекламе",
+        "chapter_number": "1",
+        "article_number": "5",
+        "entry_id": "law_99b2c27971a4"
+      }
+    },
+    {
+      "category": "Placement",
+      "description": "Ad must not be distributed on personal pages specified in part 1.3 of Article 10.6 of the Federal Law \"On Information, Information Technologies and Information Protection\", by users who have created such personal pages",
+      "type": "restriction",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Общие требования к рекламе",
+        "chapter_number": "1",
+        "article_number": "5",
+        "entry_id": "law_99b2c27971a4"
+      }
+    },
+    {
+      "category": "Compliance",
+      "description": "Ad production, placement, and distribution must comply with the legislation of the Russian Federation, including civil law and the state language legislation",
+      "type": "requirement",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Общие требования к рекламе",
+        "chapter_number": "1",
+        "article_number": "5",
+        "entry_id": "law_99b2c27971a4"
+      }
+    },
+    {
+      "category": "Market Integrity",
+      "description": "Ad must contribute to the unity of the economic space in the Russian Federation",
+      "type": "requirement",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Цели настоящего Федерального закона",
+        "chapter_number": "1",
+        "article_number": "1",
+        "entry_id": "law_9f1e67653af4"
+      }
+    },
+    {
+      "category": "Consumer Rights",
+      "description": "Ad must ensure the right of consumers to receive honest and truthful information",
+      "type": "requirement",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Цели настоящего Федерального закона",
+        "chapter_number": "1",
+        "article_number": "1",
+        "entry_id": "law_9f1e67653af4"
+      }
+    },
+    {
+      "category": "Social Welfare",
+      "description": "Ad must create favorable conditions for the production and distribution of social advertising",
+      "type": "requirement",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Цели настоящего Федерального закона",
+        "chapter_number": "1",
+        "article_number": "1",
+        "entry_id": "law_9f1e67653af4"
+      }
+    },
+    {
+      "category": "Legal Compliance",
+      "description": "Ad must prevent violations of the Russian Federation's advertising legislation",
+      "type": "requirement",
+      "from": {
+        "chapter_title": "ОБЩИЕ ПОЛОЖЕНИЯ",
+        "article_title": "Цели настоящего Федерального закона",
+        "chapter_number": "1",
+        "article_number": "1",
+        "entry_id": "law_9f1e67653af4"
+      }
+    }
+  ]
+}
