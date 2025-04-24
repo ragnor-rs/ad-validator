@@ -154,7 +154,7 @@ class LawScraper:
 
         for section in sections:
             # Check for chapter header
-            chapter_match = re.match(r'Глава\s+(\d+)[\.\s]+(.+)', section)
+            chapter_match = re.match(r'Глава\s+((\d\.{0,1})+)\s+(.*)', section)
             if chapter_match:
                 # Save previous article if exists
                 if current_article and current_content:
@@ -162,15 +162,15 @@ class LawScraper:
                 
                 # Start new chapter
                 current_chapter = {
-                    'number': chapter_match.group(1),
-                    'title': chapter_match.group(2).strip()
+                    'number': chapter_match.group(1).rstrip('.'),
+                    'title': chapter_match.group(3).strip()
                 }
                 current_article = None
                 current_content = ""
                 continue
 
             # Check for article header
-            article_match = re.match(r'Статья\s+(\d+)[\.\s]+(.+)', section)
+            article_match = re.match(r'Статья\s+((\d\.{0,1})+)\s+(.*)', section)
             if article_match:
                 # Save previous article if exists
                 if current_article and current_content:
@@ -178,8 +178,8 @@ class LawScraper:
                 
                 # Start new article
                 current_article = {
-                    'number': article_match.group(1),
-                    'title': article_match.group(2).strip()
+                    'number': article_match.group(1).rstrip('.'),
+                    'title': article_match.group(3).strip()
                 }
                 current_content = ""
                 # Add the rest of the section after the article title as content
@@ -236,7 +236,7 @@ class LawScraper:
                         }
                     }]
                 )
-                print(f"Processed chunk {i+1}/{len(chunks)} with ID: {chunk_id}")
+                print(f"Processed chunk {i+1}/{len(chunks)} with ID: {chunk_id} (Chapter {chunk['chapter']['number']}, Article {chunk['article']['number']})")
                 
                 # Small delay to avoid rate limits
                 time.sleep(0.5)

@@ -4,6 +4,7 @@ import pinecone
 from dotenv import load_dotenv
 import json
 from collections import defaultdict
+import random
 
 load_dotenv()
 
@@ -21,36 +22,33 @@ class CriteriaExtractor:
     def extract_criteria_from_text(self, text, chapter_title, article_title, chapter_number, article_number, entry_id):
         """Extract advertising evaluation criteria from a law text using GPT."""
         prompt = f"""
-        You are an expert in advertising law. Analyze the following law text and extract specific criteria 
-        that would be used to evaluate if an advertisement complies with this law.
-        
-        Chapter: {chapter_title}
-        Article: {article_title}
-        
-        Text: {text}
-        
-        Extract ONLY the specific criteria that would be used to evaluate an advertisement.
+        Determine the language of the chapter, the article and the law text. 
+        Extract specific criteria that would be used to evaluate an advertisement.
+
         For each criterion:
-        1. Identify the category it belongs to (e.g., "Content", "Targeting", "Disclosure", etc.)
-        2. Provide a clear, concise description of the criterion
-        3. Note if it's a requirement (must have) or a restriction (must not have)
-        
+        1. Identify the category it belongs to (for example: Content, Placement, Ethical, Cultural Heritage, Medicine, Real Estate, Foreign Exchange, Digital Assets, Finance, Language, etc.). Translate the category into the determined language.
+        2. Provide a clear, concise description of the criterion. Translate the description into the determined language.
+
         Format your response with each criterion on a new line using the pipe symbol (|) as a separator:
-        category | description | type
+        category | description
         
         For example:
-        Content | Ad must not contain misleading information | restriction
-        Disclosure | Ad must clearly identify the advertiser | requirement
+        Content | Ad must not contain misleading information
+        Disclosure | Ad must clearly identify the advertiser
+
         IMPORTANT: 
-        - The type field MUST be either "requirement" or "restriction" - nothing else.
-        
-        Return ONLY the list, no additional text or explanations.
+        - The category MUST BE in the determined language.
+        - The description MUST BE in the determined language.
+        - Return ONLY the list, no additional text or explanations.
         """
         
         response = self.openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=[
                 {"role": "system", "content": "You are an expert in advertising law who extracts specific evaluation criteria from legal texts."},
+                {"role": "developer", "content": f"Chapter: {chapter_title}"},
+                {"role": "developer", "content": f"Article: {article_title}"},
+                {"role": "developer", "content": f"Law text: {text}"},
                 {"role": "user", "content": prompt}
             ],
             temperature=0.2,
@@ -71,16 +69,10 @@ class CriteriaExtractor:
                 # Split by pipe symbol
                 parts = [part.strip() for part in line.split('|')]
                 
-                # Ensure we have at least 3 parts (category, description, type)
-                if len(parts) >= 3:
+                # Ensure we have at least 2 parts (category, description)
+                if len(parts) >= 2:
                     category = parts[0].strip()
                     description = parts[1].strip()
-                    criterion_type = parts[2].strip().lower()
-                    
-                    # Validate and fix the type field
-                    if criterion_type not in ["requirement", "restriction"]:
-                        print(f"Warning: Invalid type '{criterion_type}' for criterion in {article_title}. Defaulting to 'restriction'.")
-                        criterion_type = "restriction"
                     
                     # Always use the article title as the source
                     source = article_title
@@ -88,7 +80,6 @@ class CriteriaExtractor:
                     criteria.append({
                         "category": category,
                         "description": description,
-                        "type": criterion_type,
                         "from": {
                             "chapter_title": chapter_title,
                             "article_title": article_title,
@@ -105,14 +96,13 @@ class CriteriaExtractor:
     
     def process_index(self):
         """Process all entries in the Pinecone index and extract criteria."""
-        # Query the index with a dummy vector to get all entries
-        # We'll use a zero vector since we just want to retrieve entries
-        dummy_vector = [0.0] * 3072  # Dimension of text-embedding-3-large
+        # Create a randomized dummy vector
+        dummy_vector = [random.uniform(-1, 1) for _ in range(3072)]  # Dimension of text-embedding-3-large
         
         # Get all entries (adjust top_k as needed)
         results = self.index.query(
             vector=dummy_vector,
-            top_k=3,  # Adjust based on your index size
+            top_k=100,  # Adjust based on your index size
             include_metadata=True
         )
         
@@ -143,7 +133,7 @@ class CriteriaExtractor:
                 category = criterion.get('category', 'Uncategorized')
                 self.criteria_by_category[category].append(criterion)
     
-    def save_criteria(self, output_file="ad_evaluation_criteria.json"):
+    def save_criteria(self, output_file="ad_evaluation_criteria.txt"):
         """Save the extracted criteria to a JSON file."""
         # Convert defaultdict to regular dict for JSON serialization
         criteria_dict = dict(self.criteria_by_category)
@@ -163,16 +153,18 @@ class CriteriaExtractor:
         
         print(f"Saved {len(all_criteria)} criteria to {output_file}")
         
-        # Print summary
+        # Print summary sorted by number of criteria
         print("\nCriteria Summary:")
-        for category, criteria in criteria_dict.items():
+        # Sort categories by number of criteria (descending)
+        sorted_categories = sorted(criteria_dict.items(), key=lambda x: len(x[1]), reverse=True)
+        for category, criteria in sorted_categories:
             print(f"{category}: {len(criteria)} criteria")
     
     def run(self):
         """Run the extraction process."""
         print("Starting criteria extraction...")
         self.process_index()
-        self.save_criteria()
+        self.save_criteria("ad_evaluation_criteria.raw.txt")
         print("Extraction complete!")
 
 if __name__ == "__main__":
