@@ -19,38 +19,58 @@ class CriteriaExtractor:
         # Dictionary to store criteria by category
         self.criteria_by_category = defaultdict(list)
         
+        # Set to track all categories used so far
+        self.used_categories = set()
+        
     def extract_criteria_from_text(self, text, chapter_title, article_title, chapter_number, article_number, entry_id):
         """Extract advertising evaluation criteria from a law text using GPT."""
-        prompt = f"""
-        Determine the language of the chapter, the article and the law text. 
-        Extract specific criteria that would be used to evaluate an advertisement.
+        # Create category guidance based on existing categories
+        category_guidance = ""
+        if self.used_categories:
+            category_guidance = "Use the provided categories from the dictionary of categories or extract new categories for classifying ad texts from the law topic and the law text if no suitable category is found."
+        else:
+            category_guidance = "Extract categories for classifying ad texts from the law topic and the law text."
+        
+        prompt = f"""Determine the language of the law topic and the law text. 
 
-        For each criterion:
-        1. Identify the category it belongs to (for example: Content, Placement, Ethical, Cultural Heritage, Medicine, Real Estate, Foreign Exchange, Digital Assets, Finance, Language, etc.). Translate the category into the determined language.
+        For each criterion, do this:
+        1. {category_guidance} Use the determined language for the category.
         2. Provide a clear, concise description of the criterion. Translate the description into the determined language.
 
         Format your response with each criterion on a new line using the pipe symbol (|) as a separator:
         category | description
         
         For example:
-        Content | Ad must not contain misleading information
-        Disclosure | Ad must clearly identify the advertiser
+        Gambling | Ad must not overstate the benefits of gambling
+        Medical goods and services | Medicine ad must mention side effects and contraindications
+        General | Ad must not contain any inappropriate words
 
         IMPORTANT: 
         - The category MUST BE in the determined language.
         - The description MUST BE in the determined language.
         - Return ONLY the list, no additional text or explanations.
-        """
+        - Categories MUST DESCRIBE goods or services, not the law text.
+
+        GODD categories (USE FREELY): Gambling, Medical servicse, Real estate, Public events, Financial instruments, Loans, Foreign exchange, Invenstments, Digital assets, Digital products, Food supplements, E-commerce, Products for children, etc.
+        
+        BAD categories (AVOID AT ALL COSTS): Administrative responsibility, Antimonopoly law, Violation, Fines, Content, Placement, Legislation, Prohibition, Compliance, Ethics, Culture, Language, Improper words, etc.
+        
+        Use General category when you can't come up with a suitable category."""
+
+        messages = [
+            {"role": "system", "content": "You are an expert in advertising law who extracts specific evaluation criteria from legal texts. You know what is advertised, so you can classify the ad content into a category without doing any research."},
+            {"role": "developer", "content": f"Law topic: {article_title}"},
+            {"role": "developer", "content": f"Law text: {text}"},
+        ]
+        
+        if self.used_categories:
+            messages.append({"role": "developer", "content": f"Category dictionary: {', '.join(self.used_categories)}"})
+            
+        messages.append({"role": "user", "content": prompt})
         
         response = self.openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
-            messages=[
-                {"role": "system", "content": "You are an expert in advertising law who extracts specific evaluation criteria from legal texts."},
-                {"role": "developer", "content": f"Chapter: {chapter_title}"},
-                {"role": "developer", "content": f"Article: {article_title}"},
-                {"role": "developer", "content": f"Law text: {text}"},
-                {"role": "user", "content": prompt}
-            ],
+            messages=messages,
             temperature=0.2,
             max_tokens=1000
         )
@@ -73,6 +93,11 @@ class CriteriaExtractor:
                 if len(parts) >= 2:
                     category = parts[0].strip()
                     description = parts[1].strip()
+                    
+                    # Add the category to our set of used categories and print if it's new
+                    if category not in self.used_categories:
+                        print(f"New category discovered: {category}")
+                    self.used_categories.add(category)
                     
                     # Always use the article title as the source
                     source = article_title
@@ -108,6 +133,10 @@ class CriteriaExtractor:
         
         print(f"Processing {len(results.matches)} entries from the index...")
         
+        # Track progress
+        total_entries = len(results.matches)
+        processed = 0
+        
         for match in results.matches:
             metadata = match.metadata
             entry_id = match.id  # Get the entry ID
@@ -116,7 +145,8 @@ class CriteriaExtractor:
             if not all(key in metadata for key in ['chapter_title', 'article_title', 'content']):
                 continue
                 
-            print(f"Processing: Chapter {metadata['chapter_number']} - Article {metadata['article_number']}")
+            processed += 1
+            print(f"Processing: Chapter {metadata['chapter_number']} - Article {metadata['article_number']} ({processed}/{total_entries})")
             
             # Extract criteria from this entry
             criteria = self.extract_criteria_from_text(
