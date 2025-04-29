@@ -20,53 +20,56 @@ class CriteriaExtractor:
         self.criteria_by_category = defaultdict(list)
         
         # Set to track all categories used so far
-        self.used_categories = set()
+        self.used_categories = {
+            "General requirements",
+            "Informational content",
+            "Use of foreign words",
+            "Pharmaceuticals",
+            "Dietary supplements (nutraceuticals)",
+            "Distance (remote) selling",
+            "Real estate",
+            "Financial products",
+            "Loans and credit",
+            "Forex (foreign exchange trading)",
+            "Investment services using investment platforms",
+            "Promotional campaigns and incentive offers",
+            "Products for children",
+            "Digital financial assets"
+        }
+
+        self.detected_lang = 'en'
         
     def extract_criteria_from_text(self, text, chapter_title, article_title, chapter_number, article_number, entry_id):
-        """Extract advertising evaluation criteria from a law text using GPT."""
-        # Create category guidance based on existing categories
-        category_guidance = ""
-        if self.used_categories:
-            category_guidance = "Use the provided categories from the dictionary of categories or extract new categories for classifying ad texts from the law topic and the law text if no suitable category is found."
-        else:
-            category_guidance = "Extract categories for classifying ad texts from the law topic and the law text."
-        
-        prompt = f"""Determine the language of the law topic and the law text. 
-
-        For each criterion, do this:
-        1. {category_guidance} Use the determined language for the category.
-        2. Provide a clear, concise description of the criterion. Translate the description into the determined language.
-
-        Format your response with each criterion on a new line using the pipe symbol (|) as a separator:
-        category | description
-        
-        For example:
-        Gambling | Ad must not overstate the benefits of gambling
-        Medical goods and services | Medicine ad must mention side effects and contraindications
-        General | Ad must not contain any inappropriate words
-
-        IMPORTANT: 
-        - The category MUST BE in the determined language.
-        - The description MUST BE in the determined language.
-        - Return ONLY the list, no additional text or explanations.
-        - Categories MUST DESCRIBE goods or services, not the law text.
-
-        GODD categories (USE FREELY): Gambling, Medical servicse, Real estate, Public events, Financial instruments, Loans, Foreign exchange, Invenstments, Digital assets, Digital products, Food supplements, E-commerce, Products for children, etc.
-        
-        BAD categories (AVOID AT ALL COSTS): Administrative responsibility, Antimonopoly law, Violation, Fines, Content, Placement, Legislation, Prohibition, Compliance, Ethics, Culture, Language, Improper words, etc.
-        
-        Use General category when you can't come up with a suitable category."""
-
+        system_prompt = "You are an expert legal text analyst. You will be given an article from a long law text concerning advertising regulations. Your task is to extract specific legal requirements or restrictions stated in the article and group them according to the relevant categories of advertisement content."
         messages = [
-            {"role": "system", "content": "You are an expert in advertising law who extracts specific evaluation criteria from legal texts. You know what is advertised, so you can classify the ad content into a category without doing any research."},
-            {"role": "developer", "content": f"Law topic: {article_title}"},
-            {"role": "developer", "content": f"Law text: {text}"},
+            {"role": "system", "content": system_prompt},
+            {"role": "developer", "content": f"Specific topic: {article_title}"},
+            {"role": "developer", "content": f"Output language: {self.detected_lang}"},
+            {"role": "developer", "content": f"Article from a long law text: {text}"},
         ]
         
         if self.used_categories:
-            messages.append({"role": "developer", "content": f"Category dictionary: {', '.join(self.used_categories)}"})
+            messages.append({"role": "developer", "content": f"Use the following example categories as your primary reference (reuse them whenever possible; only create a new category only if none of these clearly apply): {', '.join(self.used_categories)}"})
             
-        messages.append({"role": "user", "content": prompt})
+        instructions = """Instructions:
+- Use the exact wording from the article for both category and description.
+- Group all extracted requirements under the most relevant existing category.
+- When a requirement could fit both a specific category and General requirements, prefer the specific category.
+- Only introduce a new category if none of the examples fit.
+- For each applicable category, list the requirement or restriction verbatim as it appears in the article.
+- If a single requirement applies to multiple categories, include it under each relevant one.
+- Ignore procedural or administrative rules unless they directly affect advertising content.
+
+Output format:
+Each requirement on its own line, using the pipe symbol as separator:
+category | description
+
+Examples:
+Pharmaceuticals | Advertisements must state active ingredients, contraindications, and approved dosage.
+Products for children | Advertisements may not exploit children's inexperience or trust; must include parental guidance notice.
+Digital financial assets | Advertisements must disclose volatility risks and platform's regulatory status."""
+        
+        messages.append({"role": "user", "content": instructions})  
         
         response = self.openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
@@ -119,6 +122,49 @@ class CriteriaExtractor:
             print(f"Error parsing criteria from article {article_title}: {str(e)}")
             return []
     
+    def _detect_language(self, text):
+        """Detect the language of the given text using OpenAI."""
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4-turbo-preview",
+                messages=[
+                    {"role": "system", "content": "You are a language detection expert. Respond with only the ISO 639-1 language code (e.g., 'en', 'es', 'fr')."},
+                    {"role": "user", "content": f"Detect the language of this text and respond with only the ISO 639-1 code: {text[:1000]}"}
+                ],
+                temperature=0,
+                max_tokens=10
+            )
+            return response.choices[0].message.content.strip().lower()
+        except Exception as e:
+            print(f"Language detection error: {str(e)}")
+            return 'en'
+
+    def _translate_categories(self, categories, target_lang):
+        """Translate categories to the target language using OpenAI."""
+        if target_lang == 'en':
+            return categories
+            
+        try:
+            categories_text = "\n".join(categories)
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4-turbo-preview",
+                messages=[
+                    {"role": "system", "content": f"You are a professional translator. Translate the following categories to {target_lang}. Maintain the exact same format, one category per line."},
+                    {"role": "user", "content": categories_text}
+                ],
+                temperature=0,
+                max_tokens=1000
+            )
+            
+            translated_categories = set()
+            for line in response.choices[0].message.content.strip().split('\n'):
+                translated_categories.add(line.strip())
+            
+            return translated_categories
+        except Exception as e:
+            print(f"Translation error: {str(e)}")
+            return categories
+
     def process_index(self):
         """Process all entries in the Pinecone index and extract criteria."""
         # Create a randomized dummy vector
@@ -133,6 +179,23 @@ class CriteriaExtractor:
         
         print(f"Processing {len(results.matches)} entries from the index...")
         
+        # Detect language from the first article
+        if results.matches:
+            first_article = results.matches[0].metadata.get('content', '')
+            if first_article:
+                self.detected_lang = self._detect_language(first_article)
+                print(f"Detected language: {self.detected_lang}")
+                
+                # Translate categories if needed
+                if self.detected_lang != 'en':
+                    print(f"Translating categories to {self.detected_lang}")
+                    self.used_categories = self._translate_categories(self.used_categories, self.detected_lang)
+
+        print("\nInitial categories:")
+        for category in sorted(self.used_categories):
+            print(f"- {category}")
+        print()
+
         # Track progress
         total_entries = len(results.matches)
         processed = 0
