@@ -21,60 +21,63 @@ class CriteriaExtractor:
         
         # Set to track all categories used so far
         self.used_categories = {
-            "General requirements",
-            "Informational content",
-            "Use of foreign words",
-            "Pharmaceuticals",
-            "Dietary supplements (nutraceuticals)",
-            "Distance (remote) selling",
-            "Real estate",
-            "Financial products",
-            "Loans and credit",
-            "Forex (foreign exchange trading)",
-            "Investment services using investment platforms",
-            "Promotional campaigns and incentive offers",
-            "Products for children",
-            "Digital financial assets"
+            "General"
         }
 
         self.detected_lang = 'en'
         
     def extract_criteria_from_text(self, text, chapter_title, article_title, chapter_number, article_number, entry_id):
-        system_prompt = "You are an expert legal text analyst. You will be given an article from a long law text concerning advertising regulations. Your task is to extract specific legal requirements or restrictions stated in the article and group them according to the relevant categories of advertisement content."
+        system_prompt = f"""You are an expert assistant trained to extract and classify legal regulations. For each regulation extracted from a legal article, you must assign it to the most appropriate category from a provided list. If no specific category fits, use "general". Only create a new category if it covers a truly new and broad subject area that is not already represented.
+All output must be in {self.detected_lang}. Use this format:
+category | regulation"""
+
+        developer_prompt = f"""Context:
+
+- You will be given a legal article, its title, and the chapter it belongs to.
+- Articles contain one or more regulatory statements.
+- You must extract each regulation and assign it a category from the current list.
+- If no category applies, and the regulation introduces a new domain of law or industry, you may create a new category — but only if it's high-level, reusable, and distinct.
+
+Instructions:
+
+1. Extract individual regulations from the article body.
+2. Classify regulations using the following rules:
+   - Use **"General"** if the rule applies broadly or to general advertising/legal processes.
+   - Only create a new category if it represents a **substantial, standalone legal domain** (e.g., "Transport advertising", "Alcohol regulation").
+   - **Never** create categories based on:
+     - Vague terms like “Advertising”, “Exceptions to rules”, “Requirements”
+     - Actor-based or method-based names like “Participants”, “Procurement”, “Definitions”
+     - Legal mechanisms (“Obligations”, “Restrictions”, “Identification” unless the domain itself is identification technology)
+
+4. Consider the article title and chapter title to understand the thematic scope. Use this to adjust your category choices.
+5. Be concise and avoid repetition. Prefer short, reusable category names.
+6. Write both category and regulation in {self.detected_lang}.
+7. Output format must be strictly:
+   category | regulation
+
+Only output one line per regulation. Do not include commentary, formatting, or lists."""
+        
+        category_list = "- ".join(f"{item}\n" for item in self.used_categories)
+
+        user_prompt = f"""Chapter: {chapter_title}
+Article: {article_title}
+Article text:
+{text}
+
+Current categories:
+{category_list}
+"""
+
         messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "developer", "content": f"Specific topic: {article_title}"},
-            {"role": "developer", "content": f"Output language: {self.detected_lang}"},
-            {"role": "developer", "content": f"Article from a long law text: {text}"},
+            {"role": "developer", "content": developer_prompt},
+            {"role": "user", "content": user_prompt}
         ]
-        
-        if self.used_categories:
-            messages.append({"role": "developer", "content": f"Use the following example categories as your primary reference (reuse them whenever possible; only create a new category only if none of these clearly apply): {', '.join(self.used_categories)}"})
-            
-        instructions = """Instructions:
-- Use the exact wording from the article for both category and description.
-- Group all extracted requirements under the most relevant existing category.
-- When a requirement could fit both a specific category and General requirements, prefer the specific category.
-- Only introduce a new category if none of the examples fit.
-- For each applicable category, list the requirement or restriction verbatim as it appears in the article.
-- If a single requirement applies to multiple categories, include it under each relevant one.
-- Ignore procedural or administrative rules unless they directly affect advertising content.
-
-Output format:
-Each requirement on its own line, using the pipe symbol as separator:
-category | description
-
-Examples:
-Pharmaceuticals | Advertisements must state active ingredients, contraindications, and approved dosage.
-Products for children | Advertisements may not exploit children's inexperience or trust; must include parental guidance notice.
-Digital financial assets | Advertisements must disclose volatility risks and platform's regulatory status."""
-        
-        messages.append({"role": "user", "content": instructions})  
         
         response = self.openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=messages,
-            temperature=0.2,
+            temperature=0.3,
             max_tokens=1000
         )
         
@@ -128,16 +131,16 @@ Digital financial assets | Advertisements must disclose volatility risks and pla
             response = self.openai_client.chat.completions.create(
                 model="gpt-4-turbo-preview",
                 messages=[
-                    {"role": "system", "content": "You are a language detection expert. Respond with only the ISO 639-1 language code (e.g., 'en', 'es', 'fr')."},
-                    {"role": "user", "content": f"Detect the language of this text and respond with only the ISO 639-1 code: {text[:1000]}"}
+                    {"role": "system", "content": "You are a language detection expert. Respond with only the full name of the language in English (e.g., 'English', 'Russian', 'Spanish')."},
+                    {"role": "user", "content": f"Detect the language of this text and respond with only the full name of the language in English: {text[:1000]}"}
                 ],
                 temperature=0,
-                max_tokens=10
+                max_tokens=20
             )
-            return response.choices[0].message.content.strip().lower()
+            return response.choices[0].message.content.strip()
         except Exception as e:
             print(f"Language detection error: {str(e)}")
-            return 'en'
+            return 'English'
 
     def _translate_categories(self, categories, target_lang):
         """Translate categories to the target language using OpenAI."""
@@ -164,7 +167,6 @@ Digital financial assets | Advertisements must disclose volatility risks and pla
         except Exception as e:
             print(f"Translation error: {str(e)}")
             return categories
-
     def process_index(self):
         """Process all entries in the Pinecone index and extract criteria."""
         # Create a randomized dummy vector
@@ -185,7 +187,7 @@ Digital financial assets | Advertisements must disclose volatility risks and pla
             if first_article:
                 self.detected_lang = self._detect_language(first_article)
                 print(f"Detected language: {self.detected_lang}")
-                
+                                
                 # Translate categories if needed
                 if self.detected_lang != 'en':
                     print(f"Translating categories to {self.detected_lang}")
