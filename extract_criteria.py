@@ -35,14 +35,19 @@ class CriteriaExtractor:
             return 'English'
         
     def extract_criteria_from_text(self, text, chapter_title, article_title, chapter_number, article_number, entry_id):
-        system_prompt = f"""You are an expert assistant trained to extract legal regulations. Extract each distinct regulation from the legal article, maintaining the exact wording from the text. All output must be in {self.detected_lang}."""
+        system_prompt = f""""You are an expert in advertising law who extracts specific evaluation criteria from legal texts. You give criteria description in {self.detected_lang}."""
 
-        user_prompt = f"""Chapter: {chapter_title}
-Article: {article_title}
-Article text:
+        user_prompt = f"""Law topic: {chapter_title}
+Law subtopic: {article_title}
+Law text:
 {text}
 
-Extract each distinct regulation, one per line, using the exact wording from the text."""
+Provide a clear, concise description of the criterion, one per line.
+
+For example:
+Ad must not overstate the benefits of gambling.
+Medicine ad must mention side effects and contraindications.
+Ad must not contain any inappropriate words."""
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -91,7 +96,7 @@ Extract each distinct regulation, one per line, using the exact wording from the
         # Get all entries (adjust top_k as needed)
         results = self.index.query(
             vector=dummy_vector,
-            top_k=100,  # Adjust based on your index size
+            top_k=3,  # Adjust based on your index size
             include_metadata=True
         )
         
