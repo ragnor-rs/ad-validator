@@ -11,111 +11,6 @@ import hashlib
 
 load_dotenv()
 
-def split_into_sentences(text):
-    if not text.strip():
-        return []
-        
-    sentences = []
-    current = []
-    paren_level = 0
-    i = 0
-    
-    while i < len(text):
-        char = text[i]
-        current.append(char)
-        
-        # Track parentheses level
-        if char == '(':
-            paren_level += 1
-        elif char == ')':
-            if paren_level > 0:  # Only decrease if we have a matching opening parenthesis
-                paren_level -= 1
-            
-        # Check for sentence endings
-        if char in '.!?' and paren_level == 0:
-            # Look ahead to avoid splitting on abbreviations, numbers, or numbered items
-            if i + 1 < len(text):
-                next_char = text[i + 1]
-                # Don't split if:
-                # 1. Next char is a digit (number)
-                # 2. Next char is a lowercase letter (abbreviation)
-                # 3. Current char is part of a numbered item (look back for digits)
-                is_numbered_item = False
-                if char == '.':
-                    # Look back for digits
-                    j = i - 1
-                    while j >= 0 and text[j].isdigit():
-                        j -= 1
-                    if j < i - 1:  # Found digits before the dot
-                        is_numbered_item = True
-                
-                if not (next_char.isdigit() or next_char.islower() or is_numbered_item):
-                    sentence = ''.join(current).strip()
-                    if sentence:  # Only add non-empty sentences
-                        sentences.append(sentence)
-                    current = []
-            else:
-                sentence = ''.join(current).strip()
-                if sentence:  # Only add non-empty sentences
-                    sentences.append(sentence)
-                current = []
-                
-        i += 1
-    
-    # Add any remaining content
-    if current:
-        sentence = ''.join(current).strip()
-        if sentence:  # Only add non-empty sentences
-            sentences.append(sentence)
-    
-    return sentences
-
-def save_chunk(content, current_chapter, current_article, chunks, max_content_length=4000):
-    if not content:
-        return chunks
-    # Split content into sentences if it's too long
-    if len(content) > max_content_length:
-        # Split content into sentences
-        sentences = split_into_sentences(content)
-        
-        current_chunk_content = []
-        current_length = 0
-        
-        for sentence in sentences:
-            sentence_length = len(sentence)
-            # If adding this sentence would exceed max length, save current chunk
-            if current_length + sentence_length > max_content_length and current_chunk_content:
-                chunk = {
-                    'chapter': current_chapter,
-                    'article': current_article,
-                    'content': ' '.join(current_chunk_content)
-                }
-                chunks.append(chunk)
-                current_chunk_content = []
-                current_length = 0
-            
-            current_chunk_content.append(sentence)
-            current_length += sentence_length
-        
-        # Save any remaining content
-        if current_chunk_content:
-            chunk = {
-                'chapter': current_chapter,
-                'article': current_article,
-                'content': ' '.join(current_chunk_content)
-            }
-            chunks.append(chunk)
-    else:
-        # Content fits in one chunk
-        chunk = {
-            'chapter': current_chapter,
-            'article': current_article,
-            'content': content
-        }
-        chunks.append(chunk)
-    
-    return chunks
-
 class LawScraper:
     def __init__(self):
         self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
@@ -124,19 +19,55 @@ class LawScraper:
         pc = pinecone.Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         self.index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
 
-    def generate_chunk_id(self, chunk):
+        self.detected_lang = 'en'
+
+    def _detect_language(self, text):
+        """Detect the language of the given text using OpenAI."""
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4-turbo-preview",
+                messages=[
+                    {"role": "system", "content": "You are a language detection expert. Respond with only the full name of the language in English (e.g., 'English', 'Russian', 'Spanish')."},
+                    {"role": "user", "content": f"Detect the language of this text and respond with only the full name of the language in English: {text[:1000]}"}
+                ],
+                temperature=0,
+                max_tokens=20
+            )
+            return response.choices[0].message.content.strip()
+        except Exception as e:
+            print(f"Language detection error: {str(e)}")
+            return 'English'
+        
+    def save_article(self, content, current_chapter, current_article, articles):
+        if not content:
+            return articles
+        
+        if len(articles) == 0:
+            self.detected_lang = self._detect_language(content)
+            print(f"Detected language: {self.detected_lang}")
+
+        article = {
+            'chapter': current_chapter,
+            'article': current_article,
+            'content': content
+        }
+        articles.append(article)
+        
+        return articles
+
+    def generate_criterion_id(self, criterion):
         # Combine all fields into a single string
-        combined = f"{chunk['chapter']['number']}_{chunk['chapter']['title']}_{chunk['article']['number']}_{chunk['article']['title']}_{chunk['content']}"
+        combined = f"{criterion['chapter_number']}_{criterion['chapter_title']}_{criterion['article_number']}_{criterion['article_title']}_{criterion['description']}"
         
         # Generate a hash of the combined string
         hash_object = hashlib.md5(combined.encode())
-        return f"law_{hash_object.hexdigest()[:12]}"  # Use first 12 chars of hash
+        return f"criterion_{hash_object.hexdigest()[:12]}"  # Use first 12 chars of hash
 
-    def generate_embedding(self, chunk):
+    def generate_embedding(self, criterion):
         # Combine chapter title, article title, and content
-        chapter_title = f"{chunk['chapter']['title']}"
-        article_title = f"{chunk['article']['title']}"
-        combined_text = f"{chapter_title}\n{article_title}\n{chunk['content']}"
+        chapter_title = f"{criterion['chapter_title']}"
+        article_title = f"{criterion['article_title']}"
+        combined_text = f"{chapter_title}\n{article_title}\n{criterion['description']}"
         
         response = self.openai_client.embeddings.create(
             model="text-embedding-3-large",
@@ -144,10 +75,10 @@ class LawScraper:
         )
         return response.data[0].embedding
 
-    def split_into_chunks(self, text, max_content_length=4000):
+    def split_into_articles(self, text):
         # Split text into sections by double newlines
         sections = [s.strip() for s in text.split('\n\n') if s.strip()]
-        chunks = []
+        articles = []
         current_chapter = None
         current_article = None
         current_content = ""
@@ -158,7 +89,7 @@ class LawScraper:
             if chapter_match:
                 # Save previous article if exists
                 if current_article and current_content:
-                    chunks = save_chunk(current_content, current_chapter, current_article, chunks, max_content_length)
+                    articles = self.save_article(current_content, current_chapter, current_article, articles)
                 
                 # Start new chapter
                 current_chapter = {
@@ -174,7 +105,7 @@ class LawScraper:
             if article_match:
                 # Save previous article if exists
                 if current_article and current_content:
-                    chunks = save_chunk(current_content, current_chapter, current_article, chunks, max_content_length)
+                    articles = self.save_article(current_content, current_chapter, current_article, articles)
                 
                 # Start new article
                 current_article = {
@@ -197,9 +128,59 @@ class LawScraper:
 
         # Save the last article if exists
         if current_article and current_content:
-            chunks = save_chunk(current_content, current_chapter, current_article, chunks, max_content_length)
+            articles = self.save_article(current_content, current_chapter, current_article, articles)
 
-        return chunks
+        return articles
+    
+    def extract_criteria_from_text(self, text, chapter_title, article_title, chapter_number, article_number):
+        system_prompt = f""""You are an expert in advertising law who extracts specific evaluation criteria from legal texts. You give criteria description in {self.detected_lang}."""
+
+        user_prompt = f"""Law topic: {chapter_title}
+Law subtopic: {article_title}
+Law text:
+{text}
+
+Provide a clear, concise description of the criterion, one per line.
+
+For example:
+Ad must not overstate the benefits of gambling.
+Medicine ad must mention side effects and contraindications.
+Ad must not contain any inappropriate words."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+        
+        response = self.openai_client.chat.completions.create(
+            model="gpt-4-turbo-preview",
+            messages=messages,
+            temperature=0.3,
+            max_tokens=1000
+        )
+        criteria_text = response.choices[0].message.content.strip()
+        
+        try:
+            criteria = []
+            
+            # Split by newlines and process each line
+            for line in criteria_text.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                
+                criteria.append({
+                    "description": line,
+                    "chapter_title": chapter_title,
+                    "article_title": article_title,
+                    "chapter_number": chapter_number,
+                    "article_number": article_number
+                })
+            
+            return criteria
+        except Exception as e:
+            print(f"Error parsing criteria from article {article_title}: {str(e)}")
+            return []
 
     def run(self):
         print("Starting law scraping...")
@@ -208,41 +189,55 @@ class LawScraper:
         with open('law.txt', 'r', encoding='utf-8') as file:
             content = file.read()
 
-        # Split into chunks
-        chunks = self.split_into_chunks(content)
-        print(f"Split content into {len(chunks)} chunks")
+        # Split into articles
+        articles = self.split_into_articles(content)
+        print(f"Split content into {len(articles)} articles")
 
-        # Process each chunk
-        for i, chunk in enumerate(chunks):
+        # Process each article
+        for i, article in enumerate(articles):
             try:
-                # Generate embedding
-                embedding = self.generate_embedding(chunk)
-                
-                # Generate unique ID based on chunk content
-                chunk_id = self.generate_chunk_id(chunk)
-                
-                # Insert into Pinecone
-                self.index.upsert(
-                    vectors=[{
-                        'id': chunk_id,
+                # Extract criteria from the article
+                criteria = self.extract_criteria_from_text(
+                    article['content'],
+                    article['chapter']['title'],
+                    article['article']['title'],
+                    article['chapter']['number'],
+                    article['article']['number']
+                )
+            
+                vectors = []
+
+                for criterion in criteria:                    
+                    # Generate unique ID based on criteria content
+                    id = self.generate_criterion_id(criterion)
+
+                    # Generate embedding
+                    embedding = self.generate_embedding(criterion)
+
+                    vectors.append({
+                        'id': id,
                         'values': embedding,
                         'metadata': {
-                            'content': chunk['content'],
-                            'chapter_number': chunk['chapter']['number'],
-                            'chapter_title': chunk['chapter']['title'],
-                            'article_number': chunk['article']['number'],
-                            'article_title': chunk['article']['title'],
-                            'timestamp': datetime.now().isoformat()
+                            'description': criterion['description'],
+                            'chapter_number': criterion['chapter_number'],
+                            'chapter_title': criterion['chapter_title'],
+                            'article_number': criterion['article_number'],
+                            'article_title': criterion['article_title']
                         }
-                    }]
+                    })
+                    
+                # Insert into Pinecone
+                self.index.upsert(
+                    vectors=vectors
                 )
-                print(f"Processed chunk {i+1}/{len(chunks)} with ID: {chunk_id} (Chapter {chunk['chapter']['number']}, Article {chunk['article']['number']})")
+
+                print(f"Processed article {article['article']['number']} ({i+1}/{len(articles)}) from chapter {article['chapter']['number']} ({len(vectors)} criteria found)")
                 
                 # Small delay to avoid rate limits
                 time.sleep(0.5)
                 
             except Exception as e:
-                print(f"Error processing chunk {i}: {str(e)}")
+                print(f"Error processing article {article['article']['number']}: {str(e)}")
 
         print("Law scraping completed!")
 
