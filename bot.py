@@ -26,6 +26,18 @@ class AdValidatorBot:
         pc = pinecone.Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         self.index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
 
+        self.ad_text = None
+
+        self.ad_analysis = None
+
+        self.criteria = []
+        self.questions = []
+        self.additional_data = []
+
+        self.stage = 0
+        self.step = 0
+
+
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_message = (
             "👋 Welcome to the Ad Validator! 🎨"
@@ -59,7 +71,7 @@ class AdValidatorBot:
         analysis = response.choices[0].message.content.strip()
         return analysis
 
-    def add_relevant_criteria(self, query, criteria):
+    def add_relevant_criteria(self, query: str, criteria: list) -> list:
         # Generate embedding for the query
         response = self.openai_client.embeddings.create(
             model="text-embedding-3-large",
@@ -74,6 +86,8 @@ class AdValidatorBot:
             include_metadata=True
         )
 
+        new_criteria = []
+
         # Format the context from the results
         for match in results.matches:
             id = match.id
@@ -83,41 +97,115 @@ class AdValidatorBot:
                 continue
                 
             metadata = match.metadata
-            criteria.append({
+            entry = {
                 'chapter_number': metadata['chapter_number'],
                 'chapter_title': metadata['chapter_title'],
                 'article_number': metadata['article_number'],
                 'article_title': metadata['article_title'],
                 'description': metadata['description'],
                 'id': id
-            })
+            }
 
-        return criteria
+            criteria.append(entry)
 
-    def generate_response(self, ad_text, criteria):
+            new_criteria.append(entry)
+
+        print(f"Added {len(new_criteria)} new criteria.")
+
+        return new_criteria
+
+    def add_relevant_questions(self, criteria: list, questions: list, ad_text: str) -> None:
+        if not criteria:
+            return
+
+        # Format criteria into a structured context
+        law_context = ""
+        for criterion in criteria:
+            law_context += f"- {criterion['description']}\n"
+
+        user_prompt = f"""Ad text:\n
+{ad_text}\n
+
+Relevant regulations:\n
+{law_context}
+
+Instructions:\n
+Generate specific questions to gather missing information needed for proper legal analysis.\n
+
+IMPORTANT:\n
+- Generate questions in the same language as the ad text above.
+- Do not ask about the content of the ad.
+- Assume that no ad content exist other than the ad text"""
+
+        print("=== add_relevant_questions { ===");
+        print(user_prompt);
+        print("=== } add_relevant_questions");
+
+        messages = [
+            {"role": "system", "content": """You are an expert in advertising law and analysis. 
+            Generate specific questions that would help gather missing information needed to properly evaluate the ad against the provided legal requirements.
+            Questions should be clear, specific, and directly related to the legal requirements.
+            Focus on gathering factual information that would impact the legal analysis.
+            Do not generate questions if they are already answered to in the ad.
+            Assume that no information is provided to consumers other than the ad text.
+            Return only the questions, one per line, without numbering or additional formatting."""},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        # Generate questions using OpenAI
+        response = self.openai_client.chat.completions.create(
+            model="gpt-4-turbo-preview",
+            messages=messages,
+            temperature=0.5,
+            max_tokens=1000
+        )
+
+        # Process and add new questions
+        new_questions = response.choices[0].message.content.strip().split('\n')
+        for question in new_questions:
+            question = question.strip()
+            if question:
+                questions.append(question)
+
+        print(f"Added {len(new_questions)} new questions.")
+
+    def generate_response(self, ad_text, criteria, additional_data):
         if not criteria:
             return "I couldn't find any relevant law for your ad"
 
         # Format criteria into a structured context
-        law_context = "Relevant legal requirements:\n\n"
+        law_context = ""
         for criterion in criteria:
-            law_context += f"From Chapter {criterion['chapter_number']}. ({criterion['chapter_title']}), Article {criterion['article_number']}. ({criterion['article_title']}):\n"
-            law_context += f"{criterion['description']}\n\n"
+            if len(law_context) > 0:
+                 law_context += "\n"
+            law_context += f"From Chapter {criterion['chapter_number']}. {criterion['chapter_title']}, Article {criterion['article_number']}. {criterion['article_title']}:\n"
+            law_context += f"{criterion['description']}\n"
 
-        user_prompt = f"""Ad text to analyze:
-{ad_text}
+        qna = ""
+        for item in additional_data:
+            if len(qna) > 0:
+                 qna += "\n"
+            qna += f"Question: {item['question']}\n" 
+            qna += f"Answer: {item['answer']}\n"
 
+        user_prompt = f"""Ad text to analyze:\n
+{ad_text}\n
+
+Relevant legal requirements:\n
 {law_context}
 
-Please evaluate if the ad text complies with these legal requirements. 
-For each compliance issue, reference the specific chapter and article it relates to.
-If there are no compliance issues, state that the ad appears to comply with the relevant regulations."""
-        
+Additional data to consider:\n
+{qna}
 
-        print("===");
+Instructions:\n
+- Please evaluate if the ad text complies with these legal requirements. 
+- Take questions and answers from the additional data into account.
+- For each compliance issue, reference the specific chapter and article it relates to.
+- If there are no compliance issues, state that the ad appears to comply with the relevant regulations."""
+
+        print("=== generate_response { ===");
         print(user_prompt);
-        print("===");
-        
+        print("=== } generate_response");
 
         messages = [
             {"role": "system", "content": """You are an expert ad analyst and lawyer. Analyze the ad text against the provided legal requirements. 
@@ -132,41 +220,87 @@ If there are no compliance issues, state that the ad appears to comply with the 
         response = self.openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
             messages=messages,
-            temperature=0.0,
+            temperature=0.5,
             max_tokens=1000
         )
         return response.choices[0].message.content
-    
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
-            ad_text = update.message.text
+            if self.stage == 0:
+                self.ad_text = update.message.text
 
-            criteria = []
+                self.criteria = []
+                self.questions = []
 
-            await update.message.reply_text("Running preliminary analysis of the ad text...");
-            await update.message.chat.send_action(action="typing")
-            ad_analysis = self.analyse_ad(ad_text)
+                await update.message.reply_text("Running preliminary analysis of the ad text...");
+                await update.message.chat.send_action(action="typing")
+                self.ad_analysis = self.analyse_ad(self.ad_text)
 
-            await update.message.reply_text("Looking for relevant criteria based on the preliminary analysis results...");
-            await update.message.chat.send_action(action="typing")
-            criteria = self.add_relevant_criteria(ad_analysis, criteria)
+                new_criteria = []
 
-            await update.message.reply_text("Looking for relevant criteria based on the ad text...");
-            await update.message.chat.send_action(action="typing")
-            criteria = self.add_relevant_criteria(ad_text, criteria)
-            
-            await update.message.reply_text("Running full analysis...");
-            await update.message.chat.send_action(action="typing")
-            response = self.generate_response(ad_text, criteria)
+                await update.message.reply_text("Looking for relevant criteria based on the preliminary analysis results...");
+                await update.message.chat.send_action(action="typing")
+                new_criteria += self.add_relevant_criteria(self.ad_analysis, self.criteria)
 
-            # Send response with markdown formatting
-            telegram_markdown = telegramify_markdown.markdownify(
-                response,
-                max_line_length=None,  # If you want to change the max line length for links, images, set it to the desired value.
-                normalize_whitespace=False
-            )
-            await update.message.reply_text(telegram_markdown, parse_mode='MarkdownV2')
+                # await update.message.reply_text("Looking for general criteria...");
+                # await update.message.chat.send_action(action="typing")
+                # new_criteria += self.add_relevant_criteria("General, placement", self.criteria)
+
+                await update.message.reply_text("Looking for relevant criteria based on the ad text...");
+                await update.message.chat.send_action(action="typing")
+                new_criteria += self.add_relevant_criteria(self.ad_text, self.criteria)
+
+                await update.message.reply_text("Gathering additional data from the user...");
+                await update.message.chat.send_action(action="typing")
+                self.add_relevant_questions(new_criteria, self.questions, self.ad_text)
+
+                if len(self.questions) > 0: 
+                    await update.message.reply_text(self.questions[0]);
+
+                    self.stage = 1
+                    self.step = 0
+                
+                else: 
+                    self.stage = 2
+
+            elif self.stage == 1:
+                answer = update.message.text
+                pair = {
+                    "question": self.questions[self.step],
+                    "answer": answer
+                }
+                self.additional_data.append(pair)
+
+                # new_criteria = []
+
+                # await update.message.reply_text("Looking for relevant criteria based on the reply...");
+                # await update.message.chat.send_action(action="typing")
+                # new_criteria = self.add_relevant_criteria(f"{pair['question']} {pair['answer']}", self.criteria)
+
+                # await update.message.reply_text("Generating more questions...");
+                # await update.message.chat.send_action(action="typing")
+                # self.add_relevant_questions(new_criteria, self.questions, self.ad_text)
+
+                self.step += 1
+
+                if self.step >= len(self.questions):
+                    await update.message.reply_text("Running full analysis...");
+                    await update.message.chat.send_action(action="typing")
+                    response = self.generate_response(self.ad_text, self.criteria, self.additional_data)
+
+                    # Send response with markdown formatting
+                    telegram_markdown = telegramify_markdown.markdownify(
+                        response,
+                        max_line_length=None,  # If you want to change the max line length for links, images, set it to the desired value.
+                        normalize_whitespace=False
+                    )
+                    await update.message.reply_text(telegram_markdown, parse_mode='MarkdownV2')
+                    
+                    self.stage = 0
+
+                else: 
+                    await update.message.reply_text(self.questions[self.step]);
 
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
