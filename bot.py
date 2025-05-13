@@ -37,7 +37,6 @@ class AdValidatorBot:
         self.stage = 0
         self.step = 0
 
-
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_message = (
             "👋 Welcome to the Ad Validator! 🎨"
