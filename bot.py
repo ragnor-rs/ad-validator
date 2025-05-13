@@ -130,9 +130,8 @@ Relevant regulations:\n
 {law_context}
 
 Instructions:\n
-Generate specific questions to gather missing information needed for proper legal analysis.\n
-
-IMPORTANT:\n
+- Generate specific questions to gather missing information needed for proper legal analysis.
+- Return only the questions, one per line, without numbering or additional formatting.
 - Generate questions in the same language as the ad text above.
 - Do not ask about the content of the ad.
 - Assume that no ad content exist other than the ad text"""
@@ -142,13 +141,6 @@ IMPORTANT:\n
         print("=== } add_relevant_questions");
 
         messages = [
-            {"role": "system", "content": """You are an expert in advertising law and analysis. 
-            Generate specific questions that would help gather missing information needed to properly evaluate the ad against the provided legal requirements.
-            Questions should be clear, specific, and directly related to the legal requirements.
-            Focus on gathering factual information that would impact the legal analysis.
-            Do not generate questions if they are already answered to in the ad.
-            Assume that no information is provided to consumers other than the ad text.
-            Return only the questions, one per line, without numbering or additional formatting."""},
             {"role": "user", "content": user_prompt}
         ]
 
@@ -169,7 +161,7 @@ IMPORTANT:\n
 
         print(f"Added {len(new_questions)} new questions.")
 
-    def generate_response(self, ad_text, criteria, additional_data):
+    def generate_response(self, ad_text, criteria, additional_data, ad_analysis):
         if not criteria:
             return "I couldn't find any relevant law for your ad"
 
@@ -190,6 +182,9 @@ IMPORTANT:\n
 
         user_prompt = f"""Ad text to analyze:\n
 {ad_text}\n
+
+Preliminary analysis:\n
+{ad_analysis}\n
 
 Relevant legal requirements:\n
 {law_context}
@@ -287,7 +282,7 @@ Instructions:\n
                 if self.step >= len(self.questions):
                     await update.message.reply_text("Running full analysis...");
                     await update.message.chat.send_action(action="typing")
-                    response = self.generate_response(self.ad_text, self.criteria, self.additional_data)
+                    response = self.generate_response(self.ad_text, self.criteria, self.additional_data, self.ad_analysis)
 
                     # Send response with markdown formatting
                     telegram_markdown = telegramify_markdown.markdownify(
