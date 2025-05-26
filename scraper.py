@@ -65,9 +65,7 @@ class LawScraper:
 
     def generate_embedding(self, criterion):
         # Combine chapter title, article title, and content
-        chapter_title = f"{criterion['chapter_title']}"
-        article_title = f"{criterion['article_title']}"
-        combined_text = f"{chapter_title}\n{article_title}\n{criterion['description']}"
+        combined_text = f"{criterion['chapter_title']}\n{criterion['article_title']}\n{criterion['description']}"
         
         response = self.openai_client.embeddings.create(
             model="text-embedding-3-large",
@@ -133,54 +131,52 @@ class LawScraper:
         return articles
     
     def extract_criteria_from_text(self, text, chapter_title, article_title, chapter_number, article_number):
-        system_prompt = f""""You are an expert in advertising law who extracts specific evaluation criteria from legal texts. You give criteria description in {self.detected_lang}."""
-
-        user_prompt = f"""Law topic: {chapter_title}
-Law subtopic: {article_title}
-Law text:
-{text}
-
-Provide a clear, concise description of the criterion, one per line.
-
-For example:
-Ad must not overstate the benefits of gambling.
-Medicine ad must mention side effects and contraindications.
-Ad must not contain any inappropriate words."""
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
+        """Extract clauses from text and format them as criteria.
+        Each clause starts with a number and a dot (e.g., "1.").
+        Subitems within a clause are included as part of the clause."""
         
-        response = self.openai_client.chat.completions.create(
-            model="gpt-4-turbo-preview",
-            messages=messages,
-            temperature=0.3,
-            max_tokens=1000
-        )
-        criteria_text = response.choices[0].message.content.strip()
+        # Split text into lines and remove empty lines
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
         
-        try:
-            criteria = []
-            
-            # Split by newlines and process each line
-            for line in criteria_text.split('\n'):
-                line = line.strip()
-                if not line:
-                    continue
-                
-                criteria.append({
-                    "description": line,
-                    "chapter_title": chapter_title,
-                    "article_title": article_title,
-                    "chapter_number": chapter_number,
-                    "article_number": article_number
-                })
-            
-            return criteria
-        except Exception as e:
-            print(f"Error parsing criteria from article {article_title}: {str(e)}")
-            return []
+        clauses = []
+        current_clause = []
+        current_clause_number = None
+        
+        for line in lines:
+            # Check if line starts with a number and a dot (e.g., "1.", "2.")
+            clause_match = re.match(r'^(\d+)\.\s*(.*)', line)
+            if clause_match:
+                # If we have a previous clause, add it to the list
+                if current_clause:
+                    clause_text = '\n'.join(current_clause)
+                    clauses.append({
+                        'description': clause_text,
+                        'clause_number': current_clause_number,
+                        'chapter_number': chapter_number,
+                        'chapter_title': chapter_title,
+                        'article_number': article_number,
+                        'article_title': article_title
+                    })
+                # Start a new clause
+                current_clause_number = clause_match.group(1)
+                current_clause = [clause_match.group(2)]  # Start with the text after the number
+            else:
+                # Add line to current clause
+                current_clause.append(line)
+        
+        # Add the last clause if exists
+        if current_clause:
+            clause_text = '\n'.join(current_clause)
+            clauses.append({
+                'description': clause_text,
+                'clause_number': current_clause_number,
+                'chapter_number': chapter_number,
+                'chapter_title': chapter_title,
+                'article_number': article_number,
+                'article_title': article_title
+            })
+        
+        return clauses
 
     def run(self):
         print("Starting law scraping...")
@@ -207,29 +203,31 @@ Ad must not contain any inappropriate words."""
             
                 vectors = []
 
-                for criterion in criteria:                    
-                    # Generate unique ID based on criteria content
-                    id = self.generate_criterion_id(criterion)
+                for criterion in criteria:     
+                    print(criterion)
+                    print()               
+                #     # Generate unique ID based on criteria content
+                #     id = self.generate_criterion_id(criterion)
 
-                    # Generate embedding
-                    embedding = self.generate_embedding(criterion)
+                #     # Generate embedding
+                #     embedding = self.generate_embedding(criterion)
 
-                    vectors.append({
-                        'id': id,
-                        'values': embedding,
-                        'metadata': {
-                            'description': criterion['description'],
-                            'chapter_number': criterion['chapter_number'],
-                            'chapter_title': criterion['chapter_title'],
-                            'article_number': criterion['article_number'],
-                            'article_title': criterion['article_title']
-                        }
-                    })
+                #     vectors.append({
+                #         'id': id,
+                #         'values': embedding,
+                #         'metadata': {
+                #             'description': criterion['description'],
+                #             'chapter_number': criterion['chapter_number'],
+                #             'chapter_title': criterion['chapter_title'],
+                #             'article_number': criterion['article_number'],
+                #             'article_title': criterion['article_title']
+                #         }
+                #     })
                     
-                # Insert into Pinecone
-                self.index.upsert(
-                    vectors=vectors
-                )
+                # # Insert into Pinecone
+                # self.index.upsert(
+                #     vectors=vectors
+                # )
 
                 print(f"Processed article {article['article']['number']} ({i+1}/{len(articles)}) from chapter {article['chapter']['number']} ({len(vectors)} criteria found)")
                 
