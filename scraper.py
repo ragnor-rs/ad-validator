@@ -19,32 +19,32 @@ class LawScraper:
         pc = pinecone.Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         self.index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
 
-        self.detected_lang = 'en'
+        # self.detected_lang = 'en'
 
-    def _detect_language(self, text):
-        """Detect the language of the given text using OpenAI."""
-        try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4-turbo-preview",
-                messages=[
-                    {"role": "system", "content": "You are a language detection expert. Respond with only the full name of the language in English (e.g., 'English', 'Russian', 'Spanish')."},
-                    {"role": "user", "content": f"Detect the language of this text and respond with only the full name of the language in English: {text[:1000]}"}
-                ],
-                temperature=0,
-                max_tokens=20
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"Language detection error: {str(e)}")
-            return 'English'
+    # def _detect_language(self, text):
+    #     """Detect the language of the given text using OpenAI."""
+    #     try:
+    #         response = self.openai_client.chat.completions.create(
+    #             model="gpt-4-turbo-preview",
+    #             messages=[
+    #                 {"role": "system", "content": "You are a language detection expert. Respond with only the full name of the language in English (e.g., 'English', 'Russian', 'Spanish')."},
+    #                 {"role": "user", "content": f"Detect the language of this text and respond with only the full name of the language in English: {text[:1000]}"}
+    #             ],
+    #             temperature=0,
+    #             max_tokens=20
+    #         )
+    #         return response.choices[0].message.content.strip()
+    #     except Exception as e:
+    #         print(f"Language detection error: {str(e)}")
+    #         return 'English'
         
     def save_article(self, content, current_chapter, current_article, articles):
         if not content:
             return articles
         
-        if len(articles) == 0:
-            self.detected_lang = self._detect_language(content)
-            print(f"Detected language: {self.detected_lang}")
+        # if len(articles) == 0:
+        #     self.detected_lang = self._detect_language(content)
+        #     print(f"Detected language: {self.detected_lang}")
 
         article = {
             'chapter': current_chapter,
@@ -57,11 +57,12 @@ class LawScraper:
 
     def generate_criterion_id(self, criterion):
         # Combine all fields into a single string
-        combined = f"{criterion['chapter_number']}_{criterion['chapter_title']}_{criterion['article_number']}_{criterion['article_title']}_{criterion['description']}"
-        
-        # Generate a hash of the combined string
-        hash_object = hashlib.md5(combined.encode())
-        return f"criterion_{hash_object.hexdigest()[:12]}"  # Use first 12 chars of hash
+        combined = f"{criterion['chapter_number']}_{criterion['article_number']}_{criterion['clause_number']}"
+        return combined
+    
+        # # Generate a hash of the combined string
+        # hash_object = hashlib.md5(combined.encode())
+        # return f"criterion_{hash_object.hexdigest()[:12]}"  # Use first 12 chars of hash
 
     def generate_embedding(self, criterion):
         # Combine chapter title, article title, and content
@@ -144,22 +145,22 @@ class LawScraper:
         
         for line in lines:
             # Check if line starts with a number and a dot (e.g., "1.", "2.")
-            clause_match = re.match(r'^(\d+)\.\s*(.*)', line)
+            clause_match = re.match(r'^((\d+\.)+)\s*(.*)', line)
             if clause_match:
                 # If we have a previous clause, add it to the list
                 if current_clause:
                     clause_text = '\n'.join(current_clause)
                     clauses.append({
                         'description': clause_text,
-                        'clause_number': current_clause_number,
+                        'clause_number': current_clause_number if current_clause_number else '1',
                         'chapter_number': chapter_number,
                         'chapter_title': chapter_title,
                         'article_number': article_number,
                         'article_title': article_title
                     })
                 # Start a new clause
-                current_clause_number = clause_match.group(1)
-                current_clause = [clause_match.group(2)]  # Start with the text after the number
+                current_clause_number = clause_match.group(1).strip('.')
+                current_clause = [clause_match.group(3)]  # Start with the text after the number
             else:
                 # Add line to current clause
                 current_clause.append(line)
@@ -169,7 +170,7 @@ class LawScraper:
             clause_text = '\n'.join(current_clause)
             clauses.append({
                 'description': clause_text,
-                'clause_number': current_clause_number,
+                'clause_number': current_clause_number if current_clause_number else '1',
                 'chapter_number': chapter_number,
                 'chapter_title': chapter_title,
                 'article_number': article_number,
@@ -203,36 +204,37 @@ class LawScraper:
             
                 vectors = []
 
-                for criterion in criteria:     
-                    print(criterion)
-                    print()               
-                #     # Generate unique ID based on criteria content
-                #     id = self.generate_criterion_id(criterion)
+                for criterion in criteria:                  
+                    # Generate unique ID based on criteria content
+                    id = self.generate_criterion_id(criterion)
 
-                #     # Generate embedding
-                #     embedding = self.generate_embedding(criterion)
+                    # Generate embedding
+                    embedding = self.generate_embedding(criterion)
 
-                #     vectors.append({
-                #         'id': id,
-                #         'values': embedding,
-                #         'metadata': {
-                #             'description': criterion['description'],
-                #             'chapter_number': criterion['chapter_number'],
-                #             'chapter_title': criterion['chapter_title'],
-                #             'article_number': criterion['article_number'],
-                #             'article_title': criterion['article_title']
-                #         }
-                #     })
+                    vectors.append({
+                        'id': id,
+                        'values': embedding,
+                        'metadata': {
+                            'description': criterion['description'],
+                            'chapter_number': criterion['chapter_number'],
+                            'chapter_title': criterion['chapter_title'],
+                            'article_number': criterion['article_number'],
+                            'article_title': criterion['article_title'],
+                            'clause_number': criterion['clause_number']
+                        }
+                    })
+
+                    print(f"Extracted criterion {id}")
                     
-                # # Insert into Pinecone
-                # self.index.upsert(
-                #     vectors=vectors
-                # )
+                # Insert into Pinecone
+                self.index.upsert(
+                    vectors=vectors
+                )
 
                 print(f"Processed article {article['article']['number']} ({i+1}/{len(articles)}) from chapter {article['chapter']['number']} ({len(vectors)} criteria found)")
                 
                 # Small delay to avoid rate limits
-                time.sleep(0.5)
+                time.sleep(0.1)
                 
             except Exception as e:
                 print(f"Error processing article {article['article']['number']}: {str(e)}")
