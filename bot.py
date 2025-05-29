@@ -18,6 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+default_model = "gpt-4o"
 default_system_prompt = """You are a highly skilled legal compliance analyst specializing in advertising regulations. Your task is to analyze ad content and assess its compliance with relevant advertising laws and industry standards. This includes identifying potential violations, deceptive claims, required disclaimers, and age-restricted content. Your assessment should be clear and specific.
 
 Note: Tailor your analysis based on the jurisdiction(s) provided or infer based on context if not specified."""
@@ -102,7 +103,7 @@ III. Instructions:
         print()
 
         response = self.openai_client.chat.completions.create(
-            model="gpt-4-turbo-preview",
+            model=default_model,
             messages=messages,
             temperature=0.5,
             max_tokens=1000
@@ -187,8 +188,11 @@ III. Law context:
 
 IV. Instructions:
 
-- Generate questions in {detected_lang} about the given ad text in the given law context to evaluate legality
-- Do not generate yes/no questions
+- Determine factors affecting legal assessment based strictly on the relevant excerpts
+- Determine which data is missing to proceed with evaluation of the factors
+- Formulate questions in {detected_lang} to retrieve the missing data
+- Do not give questions to which you can answer by yourself
+- Give only questions to which the author of the ad can answer
 - Give each question on a separate line
 - Don't use any formatting"""
 
@@ -204,7 +208,7 @@ IV. Instructions:
 
         # Generate questions using OpenAI
         response = self.openai_client.chat.completions.create(
-            model="gpt-4-turbo-preview",
+            model=default_model,
             messages=messages,
             temperature=0.5,
             max_tokens=1000
@@ -239,7 +243,7 @@ II. Jurisdiction:
 {detected_lang} law
 
 
-III. Law context:
+III. Relevant law:
 
 {law_context}
 
@@ -252,7 +256,7 @@ IV. Ad context:
 V. Instructions:
 
 - Analyze this ad text from a legal perspective
-- Highlight each possible violation on a separate line
+- Give the summary in {detected_lang}
 - Don't use any formatting"""
 
         print("=== BEGIN generate_response ===")
@@ -268,7 +272,7 @@ V. Instructions:
 
         # Generate response using OpenAI
         response = self.openai_client.chat.completions.create(
-            model="gpt-4-turbo-preview",
+            model=default_model,
             messages=messages,
             temperature=0.5,
             max_tokens=1000
@@ -342,7 +346,7 @@ V. Instructions:
                     self.stage = 0
 
                 else: 
-                    await update.message.reply_text(f"Question {self.step}/{len(self.questions)}:\n" + self.questions[self.step]);
+                    await update.message.reply_text(f"Question {self.step + 1}/{len(self.questions)}:\n" + self.questions[self.step]);
 
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
