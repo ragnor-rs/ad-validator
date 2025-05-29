@@ -272,7 +272,9 @@ V. Instructions:
 - Analyze the given ad text from a legal perspective
 - Apply the relevant law
 - Apply the ad context
-- Give the summary in {detected_lang}"""
+- Give the summary in {detected_lang}
+- Be straight to the point, short and concise
+- Be as detailed as possible"""
 
         print("=== BEGIN generate_response ===")
         print(user_prompt)
