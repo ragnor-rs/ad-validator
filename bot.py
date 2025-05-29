@@ -18,24 +18,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-default_system_prompt = """
-You are a highly skilled legal compliance analyst specializing in advertising regulations. Your task is to analyze ad content and assess its compliance with relevant advertising laws and industry standards. This includes identifying potential violations, deceptive claims, required disclaimers, and age-restricted content. Your assessment should be clear, specific, and actionable.
+default_system_prompt = """You are a highly skilled legal compliance analyst specializing in advertising regulations. Your task is to analyze ad content and assess its compliance with relevant advertising laws and industry standards. This includes identifying potential violations, deceptive claims, required disclaimers, and age-restricted content. Your assessment should be clear and specific.
 
-When analyzing content, follow this structured process:
-1. Content Overview: Briefly summarize the content and intended product/service.
-2. Jurisdiction Check: Confirm the applicable legal jurisdictions (e.g., US, EU, UK, Canada).
-3. Compliance Criteria: Review the content against the following areas:
-3.1. Truthfulness: Are all claims substantiated and not misleading?
-3.2. Disclosures: Are mandatory disclaimers or disclosures (e.g. for endorsements, risks, or pricing) present and clear?
-3.3. Target Audience Protections: Does the content inappropriately target children, vulnerable groups, or restricted audiences?
-3.4. Comparative Claims: Are any comparisons with competitors fair, accurate, and not disparaging?
-3.5. Restricted Content: Does the ad avoid promoting banned or heavily regulated products (e.g., tobacco, alcohol, gambling) without proper labeling?
-3.6. Data & Privacy: If personal data is collected, are the relevant privacy notices and opt-ins present?
-4. Risk Assessment: Rate the compliance risk (Low, Moderate, High) and explain why.
-5. Recommendations: Provide concrete suggestions to bring the content into full compliance if issues exist.
-
-Note: Tailor your analysis based on the jurisdiction(s) provided or infer based on context if not specified.
-"""
+Note: Tailor your analysis based on the jurisdiction(s) provided or infer based on context if not specified."""
 
 class AdValidatorBot:
     def __init__(self):
@@ -90,8 +75,7 @@ class AdValidatorBot:
         return response.data[0].embedding
 
     def analyse_ad(self, ad_text, detected_lang):
-        user_prompt = f"""
-I. Ad text to analyze:
+        user_prompt = f"""I. Ad text to analyze:
 
 {ad_text}
 
@@ -104,13 +88,18 @@ II. Jurisdiction:
 III. Instructions:
 - Analyze this ad text from a legal perspective
 - Highlight each possible violation on a separate line
-- Don’t use any formatting
-"""
+- Do not group items
+- Do not use any formatting"""
 
         messages = [
             {"role": "system", "content": default_system_prompt},
             {"role": "user", "content": user_prompt}
         ]
+
+        print("=== BEGIN analyse_ad ===")
+        print(user_prompt)
+        print("=== END analyse_ad ===")
+        print()
 
         response = self.openai_client.chat.completions.create(
             model="gpt-4-turbo-preview",
@@ -118,7 +107,7 @@ III. Instructions:
             temperature=0.5,
             max_tokens=1000
         )
-        analysis = response.choices[0].message.content.strip().splitlines()
+        analysis = [line.strip() for line in response.choices[0].message.content.strip().splitlines() if line.strip()]
         return analysis
 
     def add_relevant_criteria(self, query: str, criteria: list) -> list:
@@ -165,12 +154,23 @@ III. Instructions:
 
         return new_criteria
 
-    def add_relevant_questions(self, criteria: list, questions: list, ad_text: str, detected_lang, law_context) -> None:
+    def to_law_context(self, new_criteria: list):
+        new_law_context = ""
+        for i, criterion in enumerate(new_criteria):
+            if len(new_law_context) > 0:
+                new_law_context += "\n\n"
+            new_law_context += f"""From chapter \"{criterion['chapter_number']}. {criterion['chapter_title']}”, article \"{criterion['article_number']}. {criterion['article_title']}”, clause {criterion['clause_number']}:
+{criterion['description']}""" 
+
+        return new_law_context
+
+    def add_relevant_questions(self, criteria: list, questions: list, ad_text: str, detected_lang) -> None:
         if not criteria:
             return
 
-        user_prompt = f"""
-I. Ad text to analyze:
+        law_context = self.to_law_context(criteria);
+
+        user_prompt = f"""I. Ad text to analyze:
 
 {ad_text}
 
@@ -187,17 +187,18 @@ III. Law context:
 
 IV. Instructions:
 
-- Generate questions about the given ad text in the given law context to evaluate legality
+- Generate questions in {detected_lang} about the given ad text in the given law context to evaluate legality
+- Do not generate yes/no questions
 - Give each question on a separate line
-- Don’t use any formatting
-"""
+- Don't use any formatting"""
 
-        print("=== add_relevant_questions { ===");
-        print(user_prompt);
-        print("=== } add_relevant_questions");
+        print("=== BEGIN add_relevant_questions ===")
+        print(user_prompt)
+        print("=== END add_relevant_questions ===")
+        print()
 
         messages = [
-            {"role": "system", "content": default_system_prompt}
+            {"role": "system", "content": default_system_prompt},
             {"role": "user", "content": user_prompt}
         ]
 
@@ -210,54 +211,55 @@ IV. Instructions:
         )
 
         # Process and add new questions
-        new_questions = response.choices[0].message.content.strip().split('\n')
-        for question in new_questions:
-            question = question.strip()
-            if question:
-                questions.append(question)
+        new_questions = [line.strip() for line in response.choices[0].message.content.strip().splitlines() if line.strip()]
+        questions += new_questions
 
         print(f"Added {len(new_questions)} new questions.")
 
-    def generate_response(self, ad_text, criteria, additional_data, ad_analysis):
+    def generate_response(self, ad_text, criteria, additional_data, detected_lang):
         if not criteria:
             return "I couldn't find any relevant law for your ad"
 
         # Format criteria into a structured context
-        law_context = ""
-        for criterion in criteria:
-            if len(law_context) > 0:
-                 law_context += "\n"
-            law_context += f"From Chapter {criterion['chapter_number']}. {criterion['chapter_title']}, Article {criterion['article_number']}. {criterion['article_title']}:\n"
-            law_context += f"{criterion['description']}\n"
+        law_context = self.to_law_context(criteria)
 
-        qna = ""
+        ad_context = ""
         for item in additional_data:
-            if len(qna) > 0:
-                 qna += "\n"
-            qna += f"Question: {item['question']}\n" 
-            qna += f"Answer: {item['answer']}\n"
+            if len(ad_context) > 0:
+                 ad_context += "\n\n"
+            ad_context += f"{item['question']}\n{item['answer']}" 
 
-        user_prompt = f"""Ad text to analyze:\n
-{ad_text}\n
+        user_prompt = f"""I. Ad text to analyze:
 
-Preliminary analysis:\n
-{ad_analysis}\n
+{ad_text}
 
-Relevant legal requirements:\n
+
+II. Jurisdiction:
+
+{detected_lang} law
+
+
+III. Law context:
+
 {law_context}
 
-Additional data to consider:\n
-{qna}
 
-Instructions:\n
-- Please evaluate if the ad text complies with these legal requirements. 
-- Take questions and answers from the additional data into account.
-- For each compliance issue, reference the specific chapter and article it relates to.
-- If there are no compliance issues, state that the ad appears to comply with the relevant regulations."""
+IV. Ad context:
 
-        print("=== generate_response { ===");
-        print(user_prompt);
-        print("=== } generate_response");
+{ad_context}
+
+
+V. Instructions:
+
+- Analyze this ad text from a legal perspective
+- Highlight each possible violation on a separate line
+- Don't use any formatting"""
+
+        print("=== BEGIN generate_response ===")
+        print(user_prompt)
+        print("=== END generate_response ===")
+        print()
+
 
         messages = [
             {"role": "system", "content": default_system_prompt},
@@ -298,19 +300,15 @@ Instructions:\n
 
                 await update.message.reply_text("Looking for relevant criteria based on the preliminary analysis results...");
                 await update.message.chat.send_action(action="typing")
-                for line in self.ad_analysis
+                for line in self.ad_analysis:
                     new_criteria += self.add_relevant_criteria(line, self.criteria)
-
-                self.law_context = ""
-                # for i, criterion in enumerate(new_criteria):
-                # TODO  
 
                 await update.message.reply_text("Generating questions...");
                 await update.message.chat.send_action(action="typing")
-                self.add_relevant_questions(new_criteria, self.questions, self.ad_text, self.detected_lang, self.law_context)
+                self.add_relevant_questions(new_criteria, self.questions, self.ad_text, self.detected_lang)
 
                 if len(self.questions) > 0: 
-                    await update.message.reply_text(self.questions[0]);
+                    await update.message.reply_text(f"Question 1/{len(self.questions)}:\n" + self.questions[0]);
 
                     self.stage = 1
                     self.step = 0
@@ -331,7 +329,7 @@ Instructions:\n
                 if self.step >= len(self.questions):
                     await update.message.reply_text("Running full analysis...");
                     await update.message.chat.send_action(action="typing")
-                    response = self.generate_response(self.ad_text, self.criteria, self.additional_data, self.ad_analysis)
+                    response = self.generate_response(self.ad_text, self.criteria, self.additional_data, self.detected_lang)
 
                     # Send response with markdown formatting
                     telegram_markdown = telegramify_markdown.markdownify(
@@ -344,7 +342,7 @@ Instructions:\n
                     self.stage = 0
 
                 else: 
-                    await update.message.reply_text(self.questions[self.step]);
+                    await update.message.reply_text(f"Question {self.step}/{len(self.questions)}:\n" + self.questions[self.step]);
 
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
