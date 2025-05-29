@@ -187,14 +187,14 @@ III. Law context:
 
 
 IV. Instructions:
-
-- Determine factors affecting legal assessment based strictly on the relevant excerpts
-- Determine which data is missing to proceed with evaluation of the factors
-- Formulate questions in {detected_lang} to retrieve the missing data
-- Do not give questions to which you can answer by yourself
-- Give only questions to which the author of the ad can answer
-- Give each question on a separate line
-- Don't use any formatting"""
+- What you would ask about the given ad in {detected_lang} if you were going to assess if the given ad is compliant with the relevant clauses above?
+- IMPORTANT! Do NOT ask about content, impressions, claims, promises, statements, indications, mention, disclaimers, accuracy, information, related things, associations
+- Try to minimize the number of questions
+- Prefer open questions to binary questions
+- IMPORTANT! Do NOT ask about information that is missing from the ad text
+- Give a short example answer in {detected_lang}
+- Do not use formatting
+- Give each question, then |, then an example answer on a separate line"""
 
         print("=== BEGIN add_relevant_questions ===")
         print(user_prompt)
@@ -215,8 +215,22 @@ IV. Instructions:
         )
 
         # Process and add new questions
-        new_questions = [line.strip() for line in response.choices[0].message.content.strip().splitlines() if line.strip()]
-        questions += new_questions
+        new_questions = []
+        for line in response.choices[0].message.content.strip().splitlines():
+            line = line.strip()
+            if line:
+                parts = line.split('|')
+                if len(parts) == 2:
+                    new_questions.append({
+                        'question': parts[0].strip(),
+                        'example_answer': parts[1].strip()
+                    })
+                else:
+                    new_questions.append({
+                        'question': line,
+                        'example_answer': ''
+                    })
+        questions.extend(new_questions)
 
         print(f"Added {len(new_questions)} new questions.")
 
@@ -255,9 +269,10 @@ IV. Ad context:
 
 V. Instructions:
 
-- Analyze this ad text from a legal perspective
-- Give the summary in {detected_lang}
-- Don't use any formatting"""
+- Analyze the given ad text from a legal perspective
+- Apply the relevant law
+- Apply the ad context
+- Give the summary in {detected_lang}"""
 
         print("=== BEGIN generate_response ===")
         print(user_prompt)
@@ -312,7 +327,7 @@ V. Instructions:
                 self.add_relevant_questions(new_criteria, self.questions, self.ad_text, self.detected_lang)
 
                 if len(self.questions) > 0: 
-                    await update.message.reply_text(f"Question 1/{len(self.questions)}:\n" + self.questions[0]);
+                    await update.message.reply_text(f"Question 1/{len(self.questions)}:\n" + self.questions[0]['question'] + "\n\nExample answer:\n" + self.questions[0]['example_answer']);
 
                     self.stage = 1
                     self.step = 0
@@ -323,7 +338,7 @@ V. Instructions:
             elif self.stage == 1:
                 answer = update.message.text
                 pair = {
-                    "question": self.questions[self.step],
+                    "question": self.questions[self.step]['question'],
                     "answer": answer
                 }
                 self.additional_data.append(pair)
@@ -346,7 +361,7 @@ V. Instructions:
                     self.stage = 0
 
                 else: 
-                    await update.message.reply_text(f"Question {self.step + 1}/{len(self.questions)}:\n" + self.questions[self.step]);
+                    await update.message.reply_text(f"Question {self.step + 1}/{len(self.questions)}:\n" + self.questions[self.step]['question'] + "\n\nExample answer:\n" + self.questions[self.step]['example_answer']);
 
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
