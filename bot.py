@@ -165,11 +165,13 @@ III. Instructions:
 
         return new_law_context
 
-    def add_relevant_questions(self, criteria: list, questions: list, ad_text: str, detected_lang) -> None:
+    def add_relevant_questions(self, criteria: list, questions: list, ad_text: str, detected_lang: str, additional_data: list) -> None:
         if not criteria:
             return
 
-        law_context = self.to_law_context(criteria);
+        law_context = self.to_law_context(criteria)
+
+        ad_context = self.to_ad_context(additional_data) if len(additional_data) > 0 else "None"
 
         user_prompt = f"""I. Ad text to analyze:
 
@@ -181,20 +183,29 @@ II. Jurisdiction:
 {detected_lang} law
 
 
-III. Law context:
+III. Related clauses from the law:
 
 {law_context}
 
 
-IV. Instructions:
+IV. Extra knowledge about the ad:
+
+{ad_context}
+
+
+V. Instructions:
+
 - What you would ask about the given ad in {detected_lang} if you were going to assess if the given ad is compliant with the relevant clauses above?
-- IMPORTANT! Do NOT ask about content, impressions, claims, promises, statements, indications, mention, disclaimers, accuracy, information, related things, associations
-- Try to minimize the number of questions
-- Prefer open questions to binary questions
-- IMPORTANT! Do NOT ask about information that is missing from the ad text
-- Give a short example answer in {detected_lang}
-- Do not use formatting
-- Give each question, then |, then an example answer on a separate line"""
+- Give a short example answer in {detected_lang}.
+- Do not use formatting.
+- Give each question, then |, then an example answer on a separate line.
+
+VI. IMPORTANT! 
+- Do NOT ask about content, impressions, claims, promises, statements, mandatory indications, mentions, mandatory disclaimers, accuracy, contained information, meaning of the ad.
+- Do NOT assume anything. For example, if it's not known whether the ad is placed on a website then don't ask about websites.
+- Do NOT ask about information contained i the extra knowledge section.
+- Do NOT repeat questions.
+"""
 
         print("=== BEGIN add_relevant_questions ===")
         print(user_prompt)
@@ -210,7 +221,7 @@ IV. Instructions:
         response = self.openai_client.chat.completions.create(
             model=default_model,
             messages=messages,
-            temperature=0.5,
+            temperature=0.25,
             max_tokens=1000
         )
 
@@ -234,6 +245,17 @@ IV. Instructions:
 
         print(f"Added {len(new_questions)} new questions.")
 
+        return new_questions
+    
+    def to_ad_context(self, additional_data: list):
+        ad_context = ""
+        for item in additional_data:
+            if len(ad_context) > 0:
+                 ad_context += "\n\n"
+            ad_context += f"{item['question']}\n{item['answer']}" 
+
+        return ad_context;
+
     def generate_response(self, ad_text, criteria, additional_data, detected_lang):
         if not criteria:
             return "I couldn't find any relevant law for your ad"
@@ -241,11 +263,7 @@ IV. Instructions:
         # Format criteria into a structured context
         law_context = self.to_law_context(criteria)
 
-        ad_context = ""
-        for item in additional_data:
-            if len(ad_context) > 0:
-                 ad_context += "\n\n"
-            ad_context += f"{item['question']}\n{item['answer']}" 
+        ad_context = self.to_ad_context(additional_data)
 
         user_prompt = f"""I. Ad text to analyze:
 
@@ -324,11 +342,14 @@ V. Instructions:
                 for line in self.ad_analysis:
                     new_criteria += self.add_relevant_criteria(line, self.criteria)
 
+                self.additional_data = []
+                
                 await update.message.reply_text("Generating questions...");
                 await update.message.chat.send_action(action="typing")
-                self.add_relevant_questions(new_criteria, self.questions, self.ad_text, self.detected_lang)
+                new_questions = self.add_relevant_questions(new_criteria, self.questions, self.ad_text, self.detected_lang, self.additional_data)
+                # new_questions = []
 
-                if len(self.questions) > 0: 
+                if len(new_questions) > 0: 
                     await update.message.reply_text(f"Question 1/{len(self.questions)}:\n" + self.questions[0]['question'] + "\n\nExample answer:\n" + self.questions[0]['example_answer']);
 
                     self.stage = 1
@@ -348,6 +369,14 @@ V. Instructions:
                 self.step += 1
 
                 if self.step >= len(self.questions):
+                    # new_questions = self.add_relevant_questions(self.criteria, self.questions, self.ad_text, self.detected_lang, self.additional_data)
+                    new_questions = []
+
+                    if len(new_questions) > 0:
+                        self.questions += new_questions
+
+                if self.step >= len(self.questions):
+
                     await update.message.reply_text("Running full analysis...");
                     await update.message.chat.send_action(action="typing")
                     response = self.generate_response(self.ad_text, self.criteria, self.additional_data, self.detected_lang)
