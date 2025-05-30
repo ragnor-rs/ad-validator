@@ -31,18 +31,23 @@ class AdValidatorBot:
         pc = pinecone.Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         self.index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
 
-        self.ad_text = None
+        # Dictionary to store user states
+        self.user_states = {}
 
-        self.ad_analysis = None
-
-        self.criteria = []
-        self.questions = []
-        self.additional_data = []
-
-        self.stage = 0
-        self.step = 0
-
-        self.detected_lang = "English"
+    def _get_user_state(self, user_id):
+        """Get or create user state"""
+        if user_id not in self.user_states:
+            self.user_states[user_id] = {
+                'ad_text': None,
+                'ad_analysis': None,
+                'criteria': [],
+                'questions': [],
+                'additional_data': [],
+                'stage': 0,
+                'step': 0,
+                'detected_lang': "English"
+            }
+        return self.user_states[user_id]
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_message = (
@@ -199,10 +204,12 @@ V. Instructions:
 - Do not use formatting.
 - Give each question, then |, then an example answer on a separate line.
 
+
 VI. IMPORTANT! 
+
 - Do NOT ask about content, impressions, claims, promises, statements, mandatory indications, mentions, mandatory disclaimers, accuracy, contained information, meaning of the ad.
 - Do NOT assume anything. For example, if it's not known whether the ad is placed on a website then don't ask about websites.
-- Do NOT ask about information contained i the extra knowledge section.
+- Do NOT ask about information contained in the extra knowledge section.
 - Do NOT repeat questions.
 """
 
@@ -315,83 +322,86 @@ V. Instructions:
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
-            if self.stage == 0:
-                self.ad_text = update.message.text
+            user_id = update.effective_user.id
+            state = self._get_user_state(user_id)
 
+            if state['stage'] == 0:
+                state = {
+                    'ad_text': update.message.text,
+                    'ad_analysis': None,
+                    'criteria': [],
+                    'questions': [],
+                    'additional_data': [],
+                    'stage': 0,
+                    'step': 0,
+                    'detected_lang': "English"
+                }
+                
+                self.user_states[user_id] = state
+                
                 await update.message.reply_text("Detecting language...");
                 await update.message.chat.send_action(action="typing")
-                self.detected_lang = self._detect_language(self.ad_text)
-                print(f"Detected language: {self.detected_lang}")
-
-                self.criteria = []
-                self.questions = []
+                state['detected_lang'] = self._detect_language(state['ad_text'])
+                print(f"Detected language: {state['detected_lang']}")
 
                 new_criteria = []
 
                 await update.message.reply_text("Looking for relevant criteria based on the ad text...");
                 await update.message.chat.send_action(action="typing")
-                new_criteria += self.add_relevant_criteria(self.ad_text, self.criteria)
+                new_criteria += self.add_relevant_criteria(state['ad_text'], state['criteria'])
 
                 await update.message.reply_text("Running preliminary analysis of the ad text...");
                 await update.message.chat.send_action(action="typing")
-                self.ad_analysis = self.analyse_ad(self.ad_text, self.detected_lang)
+                state['ad_analysis'] = self.analyse_ad(state['ad_text'], state['detected_lang'])
 
                 await update.message.reply_text("Looking for relevant criteria based on the preliminary analysis results...");
                 await update.message.chat.send_action(action="typing")
-                for line in self.ad_analysis:
-                    new_criteria += self.add_relevant_criteria(line, self.criteria)
-
-                self.additional_data = []
+                for line in state['ad_analysis']:
+                    new_criteria += self.add_relevant_criteria(line, state['criteria'])
                 
                 await update.message.reply_text("Generating questions...");
                 await update.message.chat.send_action(action="typing")
-                new_questions = self.add_relevant_questions(new_criteria, self.questions, self.ad_text, self.detected_lang, self.additional_data)
-                # new_questions = []
+                new_questions = self.add_relevant_questions(new_criteria, state['questions'], state['ad_text'], state['detected_lang'], state['additional_data'])
 
                 if len(new_questions) > 0: 
-                    await update.message.reply_text(f"Question 1/{len(self.questions)}:\n" + self.questions[0]['question'] + "\n\nExample answer:\n" + self.questions[0]['example_answer']);
-
-                    self.stage = 1
-                    self.step = 0
-                
+                    await update.message.reply_text(f"Question 1/{len(state['questions'])}:\n" + state['questions'][0]['question'] + "\n\nExample answer:\n" + state['questions'][0]['example_answer']);
+                    state['stage'] = 1
                 else: 
-                    self.stage = 2
+                    state['stage'] = 2
 
-            elif self.stage == 1:
+            elif state['stage'] == 1:
                 answer = update.message.text
                 pair = {
-                    "question": self.questions[self.step]['question'],
+                    "question": state['questions'][state['step']]['question'],
                     "answer": answer
                 }
-                self.additional_data.append(pair)
+                state['additional_data'].append(pair)
 
-                self.step += 1
+                state['step'] += 1
 
-                if self.step >= len(self.questions):
-                    # new_questions = self.add_relevant_questions(self.criteria, self.questions, self.ad_text, self.detected_lang, self.additional_data)
+                if state['step'] >= len(state['questions']):
                     new_questions = []
 
                     if len(new_questions) > 0:
-                        self.questions += new_questions
+                        state['questions'] += new_questions
 
-                if self.step >= len(self.questions):
-
+                if state['step'] >= len(state['questions']):
                     await update.message.reply_text("Running full analysis...");
                     await update.message.chat.send_action(action="typing")
-                    response = self.generate_response(self.ad_text, self.criteria, self.additional_data, self.detected_lang)
+                    response = self.generate_response(state['ad_text'], state['criteria'], state['additional_data'], state['detected_lang'])
 
                     # Send response with markdown formatting
                     telegram_markdown = telegramify_markdown.markdownify(
                         response,
-                        max_line_length=None,  # If you want to change the max line length for links, images, set it to the desired value.
+                        max_line_length=None,
                         normalize_whitespace=False
                     )
                     await update.message.reply_text(telegram_markdown, parse_mode='MarkdownV2')
                     
-                    self.stage = 0
+                    state['stage'] = 0
 
                 else: 
-                    await update.message.reply_text(f"Question {self.step + 1}/{len(self.questions)}:\n" + self.questions[self.step]['question'] + "\n\nExample answer:\n" + self.questions[self.step]['example_answer']);
+                    await update.message.reply_text(f"Question {state['step'] + 1}/{len(state['questions'])}:\n" + state['questions'][state['step']]['question'] + "\n\nExample answer:\n" + state['questions'][state['step']]['example_answer']);
 
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
