@@ -43,7 +43,6 @@ class AdValidatorBot:
         self.step = 0
 
         self.detected_lang = "English"
-        self.law_context = ""
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         welcome_message = (
