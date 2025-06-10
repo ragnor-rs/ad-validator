@@ -8,6 +8,19 @@ import pinecone
 from dotenv import load_dotenv
 import telegramify_markdown
 import random
+from ai_tools import detect_language, generate_embedding
+from bot_prompts import (
+    DEFAULT_SYSTEM_PROMPT,
+    get_ad_analysis_prompt,
+    get_questions_prompt,
+    get_response_prompt,
+    format_law_context,
+    format_ad_context,
+    extract_requirements_prompt,
+    format_reqs,
+    filter_applicable_requirements_prompt,
+    filter_incomputable_requirements_prompt
+)
 
 load_dotenv()
 
@@ -19,9 +32,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 default_model = "gpt-4o"
-default_system_prompt = """You are a highly skilled legal compliance analyst specializing in advertising regulations. Your task is to analyze ad content and assess its compliance with relevant advertising laws and industry standards. This includes identifying potential violations, deceptive claims, required disclaimers, and age-restricted content. Your assessment should be clear and specific.
-
-Note: Tailor your analysis based on the jurisdiction(s) provided or infer based on context if not specified."""
 
 class AdValidatorBot:
     def __init__(self):
@@ -39,7 +49,6 @@ class AdValidatorBot:
         if user_id not in self.user_states:
             self.user_states[user_id] = {
                 'ad_text': None,
-                'ad_analysis': None,
                 'criteria': [],
                 'questions': [],
                 'additional_data': [],
@@ -55,49 +64,11 @@ class AdValidatorBot:
         )
         await update.message.reply_text(welcome_message, parse_mode='Markdown')
 
-    def _detect_language(self, text):
-        """Detect the language of the given text using OpenAI."""
-        try:
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4-turbo-preview",
-                messages=[
-                    {"role": "system", "content": "You are a language detection expert. Respond with only the full name of the language in English (e.g., 'English', 'Russian', 'Spanish')."},
-                    {"role": "user", "content": f"Detect the language of this text and respond with only the full name of the language in English: {text[:1000]}"}
-                ],
-                temperature=0,
-                max_tokens=20
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"Language detection error: {str(e)}")
-            return 'English'
-
-    def generate_embedding(self, text):
-        response = self.openai_client.embeddings.create(
-            model="text-embedding-3-large",
-            input=text
-        )
-        return response.data[0].embedding
-
     def analyse_ad(self, ad_text, detected_lang):
-        user_prompt = f"""I. Ad text to analyze:
-
-{ad_text}
-
-
-II. Jurisdiction:
-
-{detected_lang} law
-
-
-III. Instructions:
-- Analyze this ad text from a legal perspective
-- Highlight each possible violation on a separate line
-- Do not group items
-- Do not use any formatting"""
+        user_prompt = get_ad_analysis_prompt(ad_text, detected_lang)
 
         messages = [
-            {"role": "system", "content": default_system_prompt},
+            {"role": "system", "content": DEFAULT_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
         ]
 
@@ -117,11 +88,7 @@ III. Instructions:
 
     def add_relevant_criteria(self, query: str, criteria: list) -> list:
         # Generate embedding for the query
-        response = self.openai_client.embeddings.create(
-            model="text-embedding-3-large",
-            input=query
-        )
-        query_embedding = response.data[0].embedding
+        query_embedding = generate_embedding(query, self.openai_client)
 
         # Query Pinecone
         results = self.index.query(
@@ -158,60 +125,112 @@ III. Instructions:
         print(f"Added {len(new_criteria)} new criteria.")
 
         return new_criteria
-
-    def to_law_context(self, new_criteria: list):
-        new_law_context = ""
-        for i, criterion in enumerate(new_criteria):
-            if len(new_law_context) > 0:
-                new_law_context += "\n\n"
-            new_law_context += f"""From chapter \"{criterion['chapter_number']}. {criterion['chapter_title']}”, article \"{criterion['article_number']}. {criterion['article_title']}”, clause {criterion['clause_number']}:
-{criterion['description']}""" 
-
-        return new_law_context
-
-    def add_relevant_questions(self, criteria: list, questions: list, ad_text: str, detected_lang: str, additional_data: list) -> None:
+    
+    def extract_requirements(self, criteria: list, detected_lang: str) -> None:
         if not criteria:
             return
 
-        law_context = self.to_law_context(criteria)
+        law_context = format_law_context(criteria)
+        user_prompt = extract_requirements_prompt(law_context, detected_lang)
 
-        ad_context = self.to_ad_context(additional_data) if len(additional_data) > 0 else "None"
+        print("=== BEGIN extract_requirements ===")
+        print(user_prompt)
+        print("=== END extract_requirements ===")
+        print()
 
-        user_prompt = f"""I. Ad text to analyze:
+        messages = [
+            {"role": "system", "content": "You are an expert data analyzer."},
+            {"role": "user", "content": user_prompt}
+        ]
 
-{ad_text}
+        response = self.openai_client.chat.completions.create(
+            model=default_model,
+            messages=messages,
+            temperature=0.5,
+            max_tokens=1000
+        )
 
+        data_points = []
+        for line in response.choices[0].message.content.strip().splitlines():
+            line = line.strip()
+            if line:
+                data_points.append(line)
 
-II. Jurisdiction:
+        return data_points
+    
+    def filter_applicable_requirements(self, ad_text: str, reqs: list) -> None:
+        if not reqs:
+            return
 
-{detected_lang} law
+        source_reqs = format_reqs(reqs)
+        user_prompt = filter_applicable_requirements_prompt(ad_text, source_reqs)
 
+        print("=== BEGIN filter_applicable_requirements ===")
+        print(user_prompt)
+        print("=== END filter_applicable_requirements ===")
+        print()
 
-III. Related clauses from the law:
+        messages = [
+            {"role": "system", "content": "You are an expert data analyzer."},
+            {"role": "user", "content": user_prompt}
+        ]
 
-{law_context}
+        response = self.openai_client.chat.completions.create(
+            model=default_model,
+            messages=messages,
+            temperature=0.5,
+            max_tokens=1000
+        )
 
+        data_points = []
+        for line in response.choices[0].message.content.strip().splitlines():
+            line = line.strip()
+            if line:
+                data_points.append(line)
 
-IV. Extra knowledge about the ad:
+        return data_points
+    
+    def filter_incomputable_requirements(self, ad_text: str, reqs: list) -> list | None:
+        if not reqs:
+            return
 
-{ad_context}
+        source_reqs = format_reqs(reqs)
+        user_prompt = filter_incomputable_requirements_prompt(ad_text, source_reqs)
 
+        print("=== BEGIN filter_incomputable_requirements ===")
+        print(user_prompt)
+        print("=== END filter_incomputable_requirements ===")
+        print()
 
-V. Instructions:
+        messages = [
+            {"role": "system", "content": "You are an expert data analyzer."},
+            {"role": "user", "content": user_prompt}
+        ]
 
-- What you would ask about the given ad in {detected_lang} if you were going to assess if the given ad is compliant with the relevant clauses above?
-- Give a short example answer in {detected_lang}.
-- Do not use formatting.
-- Give each question, then |, then an example answer on a separate line.
+        response = self.openai_client.chat.completions.create(
+            model=default_model,
+            messages=messages,
+            temperature=0.5,
+            max_tokens=1000
+        )
 
+        data_points = []
+        for line in response.choices[0].message.content.strip().splitlines():
+            line = line.strip()
+            if line:
+                data_points.append(line)
 
-VI. IMPORTANT! 
+        return data_points
 
-- Do NOT ask about content, impressions, claims, promises, statements, mandatory indications, mentions, mandatory disclaimers, accuracy, contained information, meaning of the ad.
-- Do NOT assume anything. For example, if it's not known whether the ad is placed on a website then don't ask about websites.
-- Do NOT ask about information contained in the extra knowledge section.
-- Do NOT repeat questions.
-"""
+    def add_relevant_questions(self, criteria: list, questions: list, ad_text: str, detected_lang: str) -> None:
+        if not criteria:
+            return
+        
+        reqs = self.extract_requirements(criteria, detected_lang)
+        applicable_reqs = self.filter_applicable_requirements(ad_text, reqs)
+        incomputable_requirements = self.filter_incomputable_requirements(ad_text, applicable_reqs)
+
+        user_prompt = get_questions_prompt(ad_text, detected_lang, format_reqs(incomputable_requirements))
 
         print("=== BEGIN add_relevant_questions ===")
         print(user_prompt)
@@ -219,7 +238,7 @@ VI. IMPORTANT!
         print()
 
         messages = [
-            {"role": "system", "content": default_system_prompt},
+            {"role": "system", "content": DEFAULT_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
         ]
 
@@ -227,7 +246,7 @@ VI. IMPORTANT!
         response = self.openai_client.chat.completions.create(
             model=default_model,
             messages=messages,
-            temperature=0.25,
+            temperature=0.5,
             max_tokens=1000
         )
 
@@ -252,62 +271,19 @@ VI. IMPORTANT!
         print(f"Added {len(new_questions)} new questions.")
 
         return new_questions
-    
-    def to_ad_context(self, additional_data: list):
-        ad_context = ""
-        for item in additional_data:
-            if len(ad_context) > 0:
-                 ad_context += "\n\n"
-            ad_context += f"{item['question']}\n{item['answer']}" 
-
-        return ad_context;
 
     def generate_response(self, ad_text, criteria, additional_data, detected_lang):
-        if not criteria:
-            return "I couldn't find any relevant law for your ad"
-
-        # Format criteria into a structured context
-        law_context = self.to_law_context(criteria)
-
-        ad_context = self.to_ad_context(additional_data)
-
-        user_prompt = f"""I. Ad text to analyze:
-
-{ad_text}
-
-
-II. Jurisdiction:
-
-{detected_lang} law
-
-
-III. Relevant law:
-
-{law_context}
-
-
-IV. Ad context:
-
-{ad_context}
-
-
-V. Instructions:
-
-- Analyze the given ad text from a legal perspective
-- Apply the relevant law
-- Apply the ad context
-- Give the summary in {detected_lang}
-- Be straight to the point, short and concise
-- Be as detailed as possible"""
+        law_context = format_law_context(criteria)
+        ad_context = format_ad_context(additional_data)
+        user_prompt = get_response_prompt(ad_text, detected_lang, law_context, ad_context)
 
         print("=== BEGIN generate_response ===")
         print(user_prompt)
         print("=== END generate_response ===")
         print()
 
-
         messages = [
-            {"role": "system", "content": default_system_prompt},
+            {"role": "system", "content": DEFAULT_SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt}
         ]
 
@@ -328,7 +304,6 @@ V. Instructions:
             if state['stage'] == 0:
                 state = {
                     'ad_text': update.message.text,
-                    'ad_analysis': None,
                     'criteria': [],
                     'questions': [],
                     'additional_data': [],
@@ -336,35 +311,32 @@ V. Instructions:
                     'step': 0,
                     'detected_lang': "English"
                 }
-                
                 self.user_states[user_id] = state
                 
                 await update.message.reply_text("Detecting language...");
                 await update.message.chat.send_action(action="typing")
-                state['detected_lang'] = self._detect_language(state['ad_text'])
+                state['detected_lang'] = detect_language(state['ad_text'], self.openai_client)
                 print(f"Detected language: {state['detected_lang']}")
-
-                new_criteria = []
 
                 await update.message.reply_text("Looking for relevant criteria based on the ad text...");
                 await update.message.chat.send_action(action="typing")
-                new_criteria += self.add_relevant_criteria(state['ad_text'], state['criteria'])
+                self.add_relevant_criteria(state['ad_text'], state['criteria'])
 
                 await update.message.reply_text("Running preliminary analysis of the ad text...");
                 await update.message.chat.send_action(action="typing")
-                state['ad_analysis'] = self.analyse_ad(state['ad_text'], state['detected_lang'])
+                ad_analysis = self.analyse_ad(state['ad_text'], state['detected_lang'])
 
                 await update.message.reply_text("Looking for relevant criteria based on the preliminary analysis results...");
                 await update.message.chat.send_action(action="typing")
-                for line in state['ad_analysis']:
-                    new_criteria += self.add_relevant_criteria(line, state['criteria'])
-                
+                for line in ad_analysis:
+                    self.add_relevant_criteria(line, state['criteria'])
+
                 await update.message.reply_text("Generating questions...");
                 await update.message.chat.send_action(action="typing")
-                new_questions = self.add_relevant_questions(new_criteria, state['questions'], state['ad_text'], state['detected_lang'], state['additional_data'])
+                new_questions = self.add_relevant_questions(state['criteria'], state['questions'], state['ad_text'], state['detected_lang'])
 
                 if len(new_questions) > 0: 
-                    await update.message.reply_text(f"Question 1/{len(state['questions'])}:\n" + state['questions'][0]['question'] + "\n\nExample answer:\n" + state['questions'][0]['example_answer']);
+                    await update.message.reply_text(f"Question 1/{len(state['questions'])}:\n" + state['questions'][0]['question']) # + "\n\nExample answer:\n" + state['questions'][0]['example_answer'])
                     state['stage'] = 1
                 else: 
                     state['stage'] = 2
@@ -379,11 +351,11 @@ V. Instructions:
 
                 state['step'] += 1
 
-                if state['step'] >= len(state['questions']):
-                    new_questions = []
+                # if state['step'] >= len(state['questions']):
+                #     new_questions = []
 
-                    if len(new_questions) > 0:
-                        state['questions'] += new_questions
+                #     if len(new_questions) > 0:
+                #         state['questions'] += new_questions
 
                 if state['step'] >= len(state['questions']):
                     await update.message.reply_text("Running full analysis...");
@@ -401,7 +373,7 @@ V. Instructions:
                     state['stage'] = 0
 
                 else: 
-                    await update.message.reply_text(f"Question {state['step'] + 1}/{len(state['questions'])}:\n" + state['questions'][state['step']]['question'] + "\n\nExample answer:\n" + state['questions'][state['step']]['example_answer']);
+                    await update.message.reply_text(f"Question {state['step'] + 1}/{len(state['questions'])}:\n" + state['questions'][state['step']]['question']) # + "\n\nExample answer:\n" + state['questions'][state['step']]['example_answer'])
 
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")

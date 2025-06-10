@@ -1,5 +1,4 @@
 import os
-import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 import openai
@@ -7,7 +6,7 @@ import pinecone
 import re
 from dotenv import load_dotenv
 import time
-import hashlib
+from ai_tools import generate_embedding
 
 load_dotenv()
 
@@ -18,33 +17,10 @@ class LawScraper:
         # Initialize Pinecone with the new syntax
         pc = pinecone.Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         self.index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
-
-        # self.detected_lang = 'en'
-
-    # def _detect_language(self, text):
-    #     """Detect the language of the given text using OpenAI."""
-    #     try:
-    #         response = self.openai_client.chat.completions.create(
-    #             model="gpt-4-turbo-preview",
-    #             messages=[
-    #                 {"role": "system", "content": "You are a language detection expert. Respond with only the full name of the language in English (e.g., 'English', 'Russian', 'Spanish')."},
-    #                 {"role": "user", "content": f"Detect the language of this text and respond with only the full name of the language in English: {text[:1000]}"}
-    #             ],
-    #             temperature=0,
-    #             max_tokens=20
-    #         )
-    #         return response.choices[0].message.content.strip()
-    #     except Exception as e:
-    #         print(f"Language detection error: {str(e)}")
-    #         return 'English'
         
     def save_article(self, content, current_chapter, current_article, articles):
         if not content:
             return articles
-        
-        # if len(articles) == 0:
-        #     self.detected_lang = self._detect_language(content)
-        #     print(f"Detected language: {self.detected_lang}")
 
         article = {
             'chapter': current_chapter,
@@ -59,20 +35,10 @@ class LawScraper:
         # Combine all fields into a single string
         combined = f"{criterion['chapter_number']}_{criterion['article_number']}_{criterion['clause_number']}"
         return combined
-    
-        # # Generate a hash of the combined string
-        # hash_object = hashlib.md5(combined.encode())
-        # return f"criterion_{hash_object.hexdigest()[:12]}"  # Use first 12 chars of hash
 
-    def generate_embedding(self, criterion):
+    def get_criterion_text(self, criterion):
         # Combine chapter title, article title, and content
-        combined_text = f"{criterion['chapter_title']}\n{criterion['article_title']}\n{criterion['description']}"
-        
-        response = self.openai_client.embeddings.create(
-            model="text-embedding-3-large",
-            input=combined_text
-        )
-        return response.data[0].embedding
+        return f"{criterion['chapter_title']}\n{criterion['article_title']}\n{criterion['description']}"
 
     def split_into_articles(self, text):
         # Split text into sections by double newlines
@@ -208,8 +174,9 @@ class LawScraper:
                     # Generate unique ID based on criteria content
                     id = self.generate_criterion_id(criterion)
 
-                    # Generate embedding
-                    embedding = self.generate_embedding(criterion)
+                    # Generate embedding using the shared function
+                    criterion_text = self.get_criterion_text(criterion)
+                    embedding = generate_embedding(criterion_text, self.openai_client)
 
                     vectors.append({
                         'id': id,
