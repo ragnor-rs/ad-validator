@@ -23,5 +23,4 @@ steps:
       - '--allow-unauthenticated'
 
 images:
-  - 'gcr.io/$PROJECT_ID/ad-validator-bot'
-  - 'gcr.io/$PROJECT_ID/ad-validator-scraper' 
+  - 'gcr.io/$PROJECT_ID/ad-validator-bot' 
