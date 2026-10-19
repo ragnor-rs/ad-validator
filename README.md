@@ -154,6 +154,8 @@ A genuine Russian radio ad for a car dealership:
 
 > Бесконечно можно смотреть, как горит огонь, как течет вода, а покупать и обслуживать автомобиль — у официального дилера Toyota в Тойота Центр Тобольск Орион! Реклама. ООО Тойота Тобольск
 
+This ad is quoted here for illustration only. Its text belongs to its rights holders — the advertiser named in it, OOO Тойота Тобольск — and "Toyota" and "Тойота Центр" are their trademarks and those of their licensors; neither is covered by this repository's license, and nothing here implies any affiliation or endorsement.
+
 The bot asks nothing and reports compliance with Article 5 (general requirements): the advertiser is named, nothing is misleading, there are no incorrect comparisons, no calls to unlawful action, no resemblance to road signs. It notes that a complete assessment would also depend on where the ad runs.
 
 ### A non-compliant ad
@@ -208,9 +210,11 @@ Discussed and deliberately left out of the prototype:
 
 ## The bundled law text
 
-`law.txt` is the consolidated text of Russian Federal Law No. 38-FZ of 13 March 2006 "On Advertising", including amendments **up to and including No. 411-FZ of 23 November 2024**. The law has been amended since; this copy is not guaranteed to reflect the current version. Check the [official publication portal](http://pravo.gov.ru) or [government.ru](http://government.ru/docs/all/98086/) and replace `law.txt` (then re-run `python scraper.py`) if you need an up-to-date edition.
+`law.txt` is a consolidated text of Russian Federal Law No. 38-FZ of 13 March 2006 "On Advertising", including amendments **up to and including No. 411-FZ of 23 November 2024**. The law has been amended since; this copy is not guaranteed to reflect the current version.
 
-Official documents of state authorities, including laws, are not subject to copyright under Article 1259(6) of the Civil Code of the Russian Federation. The MIT license in [LICENSE](LICENSE) covers the code in this repository, not the text of the statute.
+Note that this is a *consolidated* edition — the statute with amendments already merged in and marked inline as `(в ред. Федерального закона от …)`. The official publication portal [pravo.gov.ru](http://pravo.gov.ru) and [government.ru](http://government.ru/docs/all/98086/) publish the original act and each amending act separately rather than in this form, so this particular copy did not come from either; it carries the formatting of a consolidated edition of the kind produced by legal-reference databases. If that matters to you, or if you need an up-to-date edition, re-source the text yourself and replace `law.txt`, then re-run `python scraper.py`.
+
+Official documents of state authorities, including laws, are not subject to copyright under Article 1259(6)(1) of the Civil Code of the Russian Federation, so the statutory text itself is free to redistribute. A compiler of a consolidated edition may nonetheless assert rights in the compilation (Articles 1260 and 1333-1334 of the Civil Code), which is a further reason to source the text from the official portal if you intend to rely on this repository commercially. The MIT license in [LICENSE](LICENSE) covers the code in this repository, not the text of the statute.
 
 ## Credits
 
@@ -228,4 +232,11 @@ Issues and pull requests are welcome.
 
 ## License
 
-[MIT](LICENSE) © Renat Sarymsakov
+[MIT](LICENSE) © 2025-2026 Renat Sarymsakov
+
+This covers the code and documentation written for this repository. Two things it does not cover:
+
+- The text of the bundled statute in `law.txt` — see [The bundled law text](#the-bundled-law-text).
+- The third-party ad quoted in [Examples](#examples), which belongs to its rights holders.
+
+Dependencies keep their own licenses. All of those in `requirements.txt` are permissive (MIT, BSD, Apache-2.0) except [`python-telegram-bot`](https://github.com/python-telegram-bot/python-telegram-bot), which is **LGPLv3**. None of its code is copied into this repository — it is only imported — so MIT on the code here is compatible with it. If you redistribute a container image built from the `Dockerfile`, note that the image bundles `python-telegram-bot` itself, and LGPLv3 obligations (carrying the license notice, and allowing the library to be replaced) attach to that image.
