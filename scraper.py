@@ -1,23 +1,28 @@
 import os
-from bs4 import BeautifulSoup
-from datetime import datetime
-import openai
-import pinecone
 import re
-from dotenv import load_dotenv
+import sys
 import time
+
+import config
+from config import ConfigError
 from ai_tools import generate_embedding
 
-load_dotenv()
+LAW_FILE = 'law.txt'
 
 class LawScraper:
-    def __init__(self):
-        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        
-        # Initialize Pinecone with the new syntax
-        pc = pinecone.Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-        self.index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
-        
+    def __init__(self, dry_run=False):
+        """With dry_run=True the law is parsed but nothing is embedded or
+        uploaded, so no credentials and no paid API calls are needed."""
+        self.dry_run = dry_run
+
+        if dry_run:
+            self.openai_client = None
+            self.index = None
+        else:
+            config.require("OPENAI_API_KEY", "PINECONE_API_KEY", "PINECONE_INDEX_NAME")
+            self.openai_client = config.openai_client()
+            self.index = config.pinecone_index()
+
     def save_article(self, content, current_chapter, current_article, articles):
         if not content:
             return articles
@@ -35,6 +40,24 @@ class LawScraper:
         # Combine all fields into a single string
         combined = f"{criterion['chapter_number']}_{criterion['article_number']}_{criterion['clause_number']}"
         return combined
+
+    def unique_criterion_id(self, criterion, used_ids):
+        """Disambiguate a repeated key.
+
+        IDs are the law's own numbering, so a clause number appearing twice in
+        one article - article 19 clause 4 does, in the bundled law - would
+        otherwise upsert over the earlier clause and drop it from the index.
+        Suffixes are assigned in document order, so they stay stable across
+        re-runs of the same text.
+        """
+        base = self.generate_criterion_id(criterion)
+        candidate = base
+        occurrence = 1
+        while candidate in used_ids:
+            occurrence += 1
+            candidate = f"{base}_{occurrence}"
+        used_ids.add(candidate)
+        return candidate
 
     def get_criterion_text(self, criterion):
         # Combine chapter title, article title, and content
@@ -146,15 +169,37 @@ class LawScraper:
         return clauses
 
     def run(self):
-        print("Starting law scraping...")
-        
+        if self.dry_run:
+            print(f"Starting law parsing (dry run: nothing is embedded or uploaded)...")
+        else:
+            print("Starting law scraping...")
+
         # Read law.txt
-        with open('law.txt', 'r', encoding='utf-8') as file:
-            content = file.read()
+        try:
+            with open(LAW_FILE, 'r', encoding='utf-8') as file:
+                content = file.read()
+        except FileNotFoundError:
+            raise ConfigError(
+                f"'{LAW_FILE}' not found in {os.getcwd()}.\n\n"
+                "Run this from the repository root, where law.txt lives."
+            )
 
         # Split into articles
         articles = self.split_into_articles(content)
         print(f"Split content into {len(articles)} articles")
+
+        if not articles:
+            raise ConfigError(
+                f"No articles were found in '{LAW_FILE}'.\n\n"
+                "The parser splits on 'Глава N' / 'Статья N' headers, each on its "
+                "own paragraph. If your law uses different wording, adjust the two "
+                "regexes in split_into_articles() - see 'Using a different law' in "
+                "the README."
+            )
+
+        total_criteria = 0
+        failed_articles = []
+        used_ids = set()
 
         # Process each article
         for i, article in enumerate(articles):
@@ -170,13 +215,13 @@ class LawScraper:
             
                 vectors = []
 
-                for criterion in criteria:                  
+                for criterion in criteria:
                     # Generate unique ID based on criteria content
-                    id = self.generate_criterion_id(criterion)
+                    id = self.unique_criterion_id(criterion, used_ids)
 
                     # Generate embedding using the shared function
                     criterion_text = self.get_criterion_text(criterion)
-                    embedding = generate_embedding(criterion_text, self.openai_client)
+                    embedding = None if self.dry_run else generate_embedding(criterion_text, self.openai_client)
 
                     vectors.append({
                         'id': id,
@@ -192,22 +237,47 @@ class LawScraper:
                     })
 
                     print(f"Extracted criterion {id}")
-                    
+
                 # Insert into Pinecone
-                self.index.upsert(
-                    vectors=vectors
-                )
+                if vectors and not self.dry_run:
+                    self.index.upsert(
+                        vectors=vectors
+                    )
+
+                total_criteria += len(vectors)
 
                 print(f"Processed article {article['article']['number']} ({i+1}/{len(articles)}) from chapter {article['chapter']['number']} ({len(vectors)} criteria found)")
-                
+
                 # Small delay to avoid rate limits
-                time.sleep(0.1)
-                
+                if not self.dry_run:
+                    time.sleep(0.1)
+
             except Exception as e:
+                failed_articles.append(article['article']['number'])
                 print(f"Error processing article {article['article']['number']}: {str(e)}")
 
-        print("Law scraping completed!")
+        if self.dry_run:
+            print(f"\nDry run completed: {len(articles)} articles, {total_criteria} criteria parsed from '{LAW_FILE}'.")
+            print("Re-run without --dry-run to embed them and upload them to Pinecone.")
+        else:
+            print(f"\nLaw scraping completed: {total_criteria} criteria upserted from {len(articles)} articles.")
+
+        if failed_articles:
+            # Without this the run ends in "completed" even when every article
+            # failed - for example on a rejected API key - leaving an index that
+            # the bot cannot retrieve anything from.
+            raise ConfigError(
+                f"{len(failed_articles)} of {len(articles)} articles failed: "
+                f"{', '.join(failed_articles)}.\n\n"
+                "The index is incomplete. Fix the errors printed above and re-run; "
+                "criteria are keyed by chapter, article and clause, so re-running "
+                "overwrites in place rather than duplicating."
+            )
 
 if __name__ == "__main__":
-    scraper = LawScraper()
-    scraper.run() 
+    dry_run = "--dry-run" in sys.argv[1:]
+    try:
+        scraper = LawScraper(dry_run=dry_run)
+        scraper.run()
+    except ConfigError as error:
+        sys.exit(f"\n{error}\n")

@@ -1,10 +1,6 @@
 flask==3.0.2
-requests==2.31.0
-beautifulsoup4==4.12.3
 openai==1.82.0
 pinecone-client==3.0.2
 python-dotenv==1.0.1
 python-telegram-bot==20.7
-schedule==1.2.1
-gunicorn==21.2.0
 telegramify-markdown==0.5.1

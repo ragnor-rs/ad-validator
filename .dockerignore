@@ -1,0 +1,17 @@
+.git
+.gitignore
+.dockerignore
+.gcloudignore
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Credentials are supplied to the container as environment variables, never
+# baked into the image.
+.env
+.env.*
+!.env.example
+
+*.log
+README.md

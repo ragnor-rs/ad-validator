@@ -1,13 +1,10 @@
-import os
 import logging
-from datetime import datetime
+import sys
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-import openai
-import pinecone
-from dotenv import load_dotenv
 import telegramify_markdown
-import random
+import config
+from config import ConfigError, REASONING_MODEL
 from ai_tools import detect_language, generate_embedding
 from bot_prompts import (
     DEFAULT_SYSTEM_PROMPT,
@@ -22,24 +19,27 @@ from bot_prompts import (
     filter_incomputable_requirements_prompt
 )
 
-load_dotenv()
-
 # Configure logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
+
+# httpx logs every request URL at INFO, and the Telegram bot token is part of
+# that URL - which would write the token into the logs on every poll.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
-default_model = "gpt-4o"
+default_model = REASONING_MODEL
 
 class AdValidatorBot:
     def __init__(self):
-        self.openai_client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        
-        # Initialize Pinecone with the new syntax
-        pc = pinecone.Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-        self.index = pc.Index(os.getenv("PINECONE_INDEX_NAME"))
+        self.openai_client = config.openai_client()
+
+        # The law must already be in the index: with an empty one there is
+        # nothing to retrieve and every verdict would be meaningless.
+        self.index = config.pinecone_index(require_populated=True)
 
         # Dictionary to store user states
         self.user_states = {}
@@ -126,9 +126,9 @@ class AdValidatorBot:
 
         return new_criteria
     
-    def extract_requirements(self, criteria: list, detected_lang: str) -> None:
+    def extract_requirements(self, criteria: list, detected_lang: str) -> list:
         if not criteria:
-            return
+            return []
 
         law_context = format_law_context(criteria)
         user_prompt = extract_requirements_prompt(law_context, detected_lang)
@@ -158,9 +158,9 @@ class AdValidatorBot:
 
         return data_points
     
-    def filter_applicable_requirements(self, ad_text: str, reqs: list) -> None:
+    def filter_applicable_requirements(self, ad_text: str, reqs: list) -> list:
         if not reqs:
-            return
+            return []
 
         source_reqs = format_reqs(reqs)
         user_prompt = filter_applicable_requirements_prompt(ad_text, source_reqs)
@@ -190,9 +190,9 @@ class AdValidatorBot:
 
         return data_points
     
-    def filter_incomputable_requirements(self, ad_text: str, reqs: list) -> list | None:
+    def filter_incomputable_requirements(self, ad_text: str, reqs: list) -> list:
         if not reqs:
-            return
+            return []
 
         source_reqs = format_reqs(reqs)
         user_prompt = filter_incomputable_requirements_prompt(ad_text, source_reqs)
@@ -222,13 +222,18 @@ class AdValidatorBot:
 
         return data_points
 
-    def add_relevant_questions(self, criteria: list, questions: list, ad_text: str, detected_lang: str) -> None:
+    def add_relevant_questions(self, criteria: list, questions: list, ad_text: str, detected_lang: str) -> list:
         if not criteria:
-            return
-        
+            return []
+
         reqs = self.extract_requirements(criteria, detected_lang)
         applicable_reqs = self.filter_applicable_requirements(ad_text, reqs)
         incomputable_requirements = self.filter_incomputable_requirements(ad_text, applicable_reqs)
+
+        if not incomputable_requirements:
+            # Everything applicable can be judged from the ad text alone, so
+            # there is nothing to ask the user about.
+            return []
 
         user_prompt = get_questions_prompt(ad_text, detected_lang, format_reqs(incomputable_requirements))
 
@@ -296,6 +301,22 @@ class AdValidatorBot:
         )
         return response.choices[0].message.content
 
+    async def send_verdict(self, update: Update, state: dict):
+        """Run the final analysis, send it, and put the user back at the start."""
+        await update.message.reply_text("Running full analysis...")
+        await update.message.chat.send_action(action="typing")
+        response = self.generate_response(state['ad_text'], state['criteria'], state['additional_data'], state['detected_lang'])
+
+        # Send response with markdown formatting
+        telegram_markdown = telegramify_markdown.markdownify(
+            response,
+            max_line_length=None,
+            normalize_whitespace=False
+        )
+        await update.message.reply_text(telegram_markdown, parse_mode='MarkdownV2')
+
+        state['stage'] = 0
+
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             user_id = update.effective_user.id
@@ -335,11 +356,12 @@ class AdValidatorBot:
                 await update.message.chat.send_action(action="typing")
                 new_questions = self.add_relevant_questions(state['criteria'], state['questions'], state['ad_text'], state['detected_lang'])
 
-                if len(new_questions) > 0: 
+                if len(new_questions) > 0:
                     await update.message.reply_text(f"Question 1/{len(state['questions'])}:\n" + state['questions'][0]['question']) # + "\n\nExample answer:\n" + state['questions'][0]['example_answer'])
                     state['stage'] = 1
-                else: 
-                    state['stage'] = 2
+                else:
+                    # Nothing to ask: go straight to the verdict.
+                    await self.send_verdict(update, state)
 
             elif state['stage'] == 1:
                 answer = update.message.text
@@ -358,21 +380,9 @@ class AdValidatorBot:
                 #         state['questions'] += new_questions
 
                 if state['step'] >= len(state['questions']):
-                    await update.message.reply_text("Running full analysis...");
-                    await update.message.chat.send_action(action="typing")
-                    response = self.generate_response(state['ad_text'], state['criteria'], state['additional_data'], state['detected_lang'])
+                    await self.send_verdict(update, state)
 
-                    # Send response with markdown formatting
-                    telegram_markdown = telegramify_markdown.markdownify(
-                        response,
-                        max_line_length=None,
-                        normalize_whitespace=False
-                    )
-                    await update.message.reply_text(telegram_markdown, parse_mode='MarkdownV2')
-                    
-                    state['stage'] = 0
-
-                else: 
+                else:
                     await update.message.reply_text(f"Question {state['step'] + 1}/{len(state['questions'])}:\n" + state['questions'][state['step']]['question']) # + "\n\nExample answer:\n" + state['questions'][state['step']]['example_answer'])
 
         except Exception as e:
@@ -382,8 +392,17 @@ class AdValidatorBot:
             )
 
 def runBot():
+    # Check the whole environment up front, so a half-configured .env is
+    # reported in one pass rather than one variable at a time.
+    config.require(
+        "TELEGRAM_BOT_TOKEN",
+        "OPENAI_API_KEY",
+        "PINECONE_API_KEY",
+        "PINECONE_INDEX_NAME"
+    )
+
     # Initialize bot
-    application = Application.builder().token(os.getenv("TELEGRAM_BOT_TOKEN")).build()
+    application = Application.builder().token(config.get("TELEGRAM_BOT_TOKEN")).build()
     ad_validator_bot = AdValidatorBot()
 
     # Add handlers
@@ -391,7 +410,11 @@ def runBot():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, ad_validator_bot.handle_message))
 
     # Start the bot
+    logger.info("Bot started. Send it /start on Telegram.")
     application.run_polling()
 
 if __name__ == "__main__":
-    runBot() 
+    try:
+        runBot()
+    except ConfigError as error:
+        sys.exit(f"\n{error}\n")

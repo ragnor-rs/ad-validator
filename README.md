@@ -31,14 +31,15 @@ Naive RAG over the law did not work: embedding whole articles and retrieving by 
 
 | File | Role |
 | --- | --- |
-| `scraper.py` | One-time ingestion: parses `law.txt` into chapters, articles and clauses, extracts legal requirements with an LLM, writes embeddings to Pinecone. The only component that cares about the law's formatting. |
+| `scraper.py` | One-time ingestion: parses `law.txt` into chapters, articles and clauses, then writes one embedding per clause to Pinecone. The only component that cares about the law's formatting. `python scraper.py --dry-run` parses and reports without calling any paid API. |
 | `bot.py` | The Telegram bot itself (long polling). Runs the seven-step chain above. |
 | `bot-server.py` | Wrapper for Cloud Run: serves a health-check endpoint on `$PORT` and runs the bot. |
 | `bot_prompts.py` | All LLM prompt templates — one per step of the chain. |
 | `ai_tools.py` | Shared OpenAI helpers (language detection, embeddings). |
+| `config.py` | Model names, and the environment check that both entry points run before they start. |
 | `law.txt` | The law to check against. Replaceable — see [Using a different law](#using-a-different-law) and [The bundled law text](#the-bundled-law-text). |
 
-Models used: `gpt-4o` for reasoning and `text-embedding-3-large` (3072 dimensions) for embeddings. A full ingestion run of the bundled law extracted roughly 400–560 requirements, depending on the prompt.
+Models used: `gpt-4o` for reasoning and `text-embedding-3-large` (3072 dimensions) for embeddings. Ingesting the bundled law yields 290 clauses across 43 articles, one vector each; step 3 of the chain then expands whatever was retrieved into a flat list of individual requirements at query time, which is where the larger counts come from.
 
 ## Prerequisites
 
@@ -48,7 +49,7 @@ Models used: `gpt-4o` for reasoning and `text-embedding-3-large` (3072 dimension
 - Pinecone API key and an index
 - Google Cloud project (only if you want to deploy)
 
-Running the ingestion step and the bot both consume paid OpenAI tokens. Ingesting the full law makes one LLM call per article plus one embedding call per extracted requirement.
+Running the ingestion step and the bot both consume paid OpenAI tokens. Ingesting the bundled law makes 290 embedding calls and no LLM calls; checking one ad makes seven LLM calls plus one embedding call per retrieval pass. To see the ingestion parse without spending anything, run `python scraper.py --dry-run`.
 
 ## Setup
 
@@ -79,7 +80,15 @@ cp .env.example .env
 # Edit .env with your actual credentials, including the index name from step 3
 ```
 
-5. Ingest the law into Pinecone. **This is required** — until it is done the index is empty and the bot has nothing to retrieve, so it will return meaningless results:
+5. Check the law parses, without spending anything:
+
+```bash
+python scraper.py --dry-run
+```
+
+Against the bundled `law.txt` this reports `43 articles, 290 criteria`. Needs no credentials, makes no API calls.
+
+6. Ingest the law into Pinecone. **This is required** — until it is done the index is empty, so the bot refuses to start:
 
 ```bash
 python scraper.py
@@ -113,6 +122,8 @@ Run the bot (long polling, no public endpoint needed):
 python bot.py
 ```
 
+On startup it checks that all four environment variables are set, that the Pinecone index exists and has dimension 3072, and that the law has been ingested into it. Anything missing is reported as a message naming the fix, before the bot connects to Telegram.
+
 ## Deployment to Google Cloud
 
 The provided configuration deploys `bot-server.py` to Cloud Run.
@@ -135,7 +146,7 @@ gcloud services enable cloudbuild.googleapis.com run.googleapis.com
 gcloud builds submit --config cloudbuild.yaml
 ```
 
-Supply `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`, `PINECONE_API_KEY` and `PINECONE_INDEX_NAME` to the Cloud Run service as environment variables or secrets — `.env` is excluded from the deployed image by `.gcloudignore`.
+Supply `TELEGRAM_BOT_TOKEN`, `OPENAI_API_KEY`, `PINECONE_API_KEY` and `PINECONE_INDEX_NAME` to the Cloud Run service as environment variables or secrets — `.env` is excluded from the build context by `.gcloudignore` (for `gcloud builds submit`) and by `.dockerignore` (for a local `docker build`), so it is never baked into the image.
 
 ## Usage
 
@@ -191,7 +202,7 @@ Observed during development and not fixed:
 - **Retrieval is capped at `top_k=10` per pass.** With ~50 distinct requirements in the bundled law and ~400+ extracted, relevant requirements can be missed. The cap was never tuned, and certainly not for any other law.
 - **Any exception becomes "Sorry, I encountered an error while processing your request."** Failures mid-chain are not distinguished or retried.
 - **Accuracy was never measured.** There is no evaluation set and no tests. For comparison, the practitioners involved treated ~80% correctness as the industry norm for assistants of this kind.
-- **`bot-server.py` has dead code**: `app.run()` blocks, so the `schedule` loop beneath it is unreachable — and nothing is ever registered with `schedule` anyway.
+- **No conversation timeout or `/cancel`.** A user who stops answering questions stays mid-chain until they send another message; the only way out is to answer the remaining questions.
 
 ## Ideas not implemented
 

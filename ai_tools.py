@@ -1,11 +1,10 @@
-import os
-import openai
+from config import EMBEDDING_MODEL, REASONING_MODEL
 
 def detect_language(text, openai_client):
     """Detect the language of the given text using OpenAI."""
     try:
         response = openai_client.chat.completions.create(
-            model="gpt-4-turbo-preview",
+            model=REASONING_MODEL,
             messages=[
                 {"role": "system", "content": "You are a language detection expert. Respond with only the full name of the language in English (e.g., 'English', 'Russian', 'Spanish')."},
                 {"role": "user", "content": f"Detect the language of this text and respond with only the full name of the language in English: {text[:1000]}"}
@@ -21,7 +20,7 @@ def detect_language(text, openai_client):
 def generate_embedding(text, openai_client):
     """Generate an embedding for the given text using OpenAI."""
     response = openai_client.embeddings.create(
-        model="text-embedding-3-large",
+        model=EMBEDDING_MODEL,
         input=text
     )
-    return response.data[0].embedding 
+    return response.data[0].embedding
